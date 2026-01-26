@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual envs
+.venv/
+venv/
+
+# Local state
+.myai/
+*.log
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Env variables
+.env
+
+# PyInstaller
+build/
+dist/
+*.spec
