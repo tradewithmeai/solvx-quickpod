@@ -1,4 +1,4 @@
-from my_ai_package.ai import main as ai_main
+from solvx_quickpod.ai import main as ai_main
 
 def main():
     ai_main()
