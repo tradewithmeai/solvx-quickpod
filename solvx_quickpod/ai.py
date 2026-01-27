@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
 
-from dotenv import load_dotenv, find_dotenv
-load_dotenv(find_dotenv())  # Find and load .env file (searches up directory tree)
-
 import os
 import sys
+
+# Check for first run BEFORE loading env vars
+from solvx_quickpod.onboarding import check_first_run, run_onboarding, save_env_file
+
+if check_first_run():
+    runpod_key, vllm_key = run_onboarding()
+    save_env_file(runpod_key, vllm_key)
+    print("\nStarting SolvX QuickPod...\n")
+
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv(), override=True)  # Load .env file (override any existing vars)
+
 import time
 import json
 import requests
@@ -21,12 +30,8 @@ from solvx_quickpod import storage
 RUNPOD_API_KEY = os.getenv("RUNPOD_API_KEY")
 VLLM_API_KEY = os.getenv("VLLM_API_KEY")
 
-if not RUNPOD_API_KEY:
-    print("[ERROR] RUNPOD_API_KEY is not set")
-    sys.exit(1)
-
-if not VLLM_API_KEY:
-    print("[ERROR] VLLM_API_KEY is not set")
+if not RUNPOD_API_KEY or not VLLM_API_KEY:
+    print("[ERROR] Configuration failed. Please delete .env and try again.")
     sys.exit(1)
 
 # ==================== CONSTANTS ====================
@@ -34,7 +39,7 @@ if not VLLM_API_KEY:
 # Hardcoded configuration
 GPU_TYPE = "NVIDIA GeForce RTX 3090"
 GPU_COUNT = 1
-MODEL_PATH = "/workspace/models/mistral-7b-instruct-awq"
+MODEL_ID = "TheBloke/Mistral-7B-Instruct-v0.2-AWQ"
 REFERRAL_LINK = "https://runpod.io?ref=q04x36mf"
 
 console = Console()
@@ -72,7 +77,7 @@ def launch_pod():
         print("[ERROR] Failed to create pod")
         sys.exit(1)
 
-    write_state(pod_id, MODEL_PATH)
+    write_state(pod_id, MODEL_ID)
     wait_for_running(pod_id)
 
     base_url = f"https://{pod_id}-8000.proxy.runpod.net"
@@ -93,7 +98,9 @@ def wait_for_vllm_ready(pod_id):
                 timeout=10
             )
             if r.status_code == 200:
-                print("vLLM API ready ✓")
+                data = r.json()
+                models = [m.get("id") for m in data.get("data", [])]
+                print(f"vLLM API ready ✓ (models: {models})")
                 return
         except requests.RequestException:
             pass
@@ -116,6 +123,7 @@ def trim_history(messages, max_turns=10):
     if max_turns is None:
         return messages  # Full history
 
+    # Keep first message (has system prompt) + last N turns
     max_messages = 1 + max_turns * 2
     if len(messages) > max_messages:
         return [messages[0]] + messages[-(max_messages - 1):]
@@ -131,8 +139,10 @@ def run_chat(pod_id):
     session_id = storage.new_session()
     storage.touch_user()
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    storage.log_message(session_id, "system", SYSTEM_PROMPT)
+    # Mistral doesn't support system role - we'll prepend to first user message
+    messages = []
+    first_message = True
+    show_json = False
 
     # Pod check timing
     last_pod_check = time.time()
@@ -140,7 +150,7 @@ def run_chat(pod_id):
 
     console.print(f"[dim]Temperature: {TEMPERATURE}[/dim]")
     console.print(f"[dim]History: Last {MAX_TURNS} turns[/dim]\n")
-    console.print("[bold]Chat started. Commands: /stop, /help. Ctrl+C to exit.[/bold]\n")
+    console.print("[bold]Chat started. Commands: /json, /stop, /help. Ctrl+C to exit.[/bold]\n")
 
     while True:
         try:
@@ -159,7 +169,15 @@ def run_chat(pod_id):
             if user_input.lower() == "/help":
                 console.print("[dim]Available commands:[/dim]")
                 console.print("[dim]  /stop - Terminate pod and exit[/dim]")
+                console.print("[dim]  /json - Toggle JSON request/response display[/dim]")
                 console.print("[dim]  /help - Show this help[/dim]\n")
+                continue
+
+            # Toggle JSON display
+            if user_input.lower() == "/json":
+                show_json = not show_json
+                status = "ON" if show_json else "OFF"
+                console.print(f"[dim]JSON display: {status}[/dim]\n")
                 continue
 
             # Handle /stop command
@@ -173,7 +191,14 @@ def run_chat(pod_id):
                         console.print("[red]Failed to terminate pod.[/red]")
                 continue
 
-            messages.append({"role": "user", "content": user_input})
+            # Prepend system prompt to first message (Mistral doesn't support system role)
+            if first_message:
+                user_content = f"{SYSTEM_PROMPT}\n\n{user_input}"
+                first_message = False
+            else:
+                user_content = user_input
+
+            messages.append({"role": "user", "content": user_content})
             storage.log_message(session_id, "user", user_input)
             messages = trim_history(messages, MAX_TURNS)
 
@@ -193,6 +218,10 @@ def run_chat(pod_id):
                 "Content-Type": "application/json",
             }
 
+            if show_json:
+                console.print("\n[dim]>>> REQUEST:[/dim]")
+                console.print(f"[dim]{json.dumps(payload, indent=2)}[/dim]\n")
+
             console.print("\n[bold green]AI >[/bold green] ", end="")
             assistant_text = ""
 
@@ -205,8 +234,9 @@ def run_chat(pod_id):
                 ) as response:
 
                     if response.status_code != 200:
+                        error_text = response.read().decode()
                         console.print(
-                            f"\n[bold red]HTTP {response.status_code}[/bold red]"
+                            f"\n[bold red]HTTP {response.status_code}:[/bold red] {error_text}"
                         )
                         continue
 
@@ -232,7 +262,14 @@ def run_chat(pod_id):
                             continue
 
             elapsed = time.time() - request_start
-            console.print(f"\n[dim]({elapsed:.1f}s)[/dim]\n")
+            console.print(f"\n[dim]({elapsed:.1f}s)[/dim]")
+
+            if show_json and assistant_text:
+                response_json = {"role": "assistant", "content": assistant_text}
+                console.print(f"\n[dim]<<< RESPONSE:[/dim]")
+                console.print(f"[dim]{json.dumps(response_json, indent=2)}[/dim]")
+
+            console.print()
 
             if assistant_text:
                 messages.append(

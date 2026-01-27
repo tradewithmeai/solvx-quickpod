@@ -10,8 +10,8 @@ MODEL = None
 LLM_PORT = 8000
 LLM_BASE_URL = None
 
-# Model path
-PRIMARY_MODEL = "/workspace/models/mistral-7b-instruct-awq"
+# HuggingFace model ID
+PRIMARY_MODEL = "TheBloke/Mistral-7B-Instruct-v0.2-AWQ"
 
 if STATE_FILE.exists():
     try:

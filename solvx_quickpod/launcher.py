@@ -8,8 +8,10 @@ import requests
 from pathlib import Path
 
 RUNPOD_API_KEY = os.getenv("RUNPOD_API_KEY")
-NETWORK_VOLUME_ID = "5ue82zuz7o"
 RUNPOD_API = "https://rest.runpod.io/v1/pods"
+
+# HuggingFace model to download
+HF_MODEL_ID = "TheBloke/Mistral-7B-Instruct-v0.2-AWQ"
 
 HEADERS = {
     "Authorization": f"Bearer {RUNPOD_API_KEY}",
@@ -40,40 +42,33 @@ def start_pod(gpu_type, gpu_count):
 def create_pod(gpu_type, gpu_count):
     """
     Create a RunPod pod with Mistral-7B vLLM server.
+    Downloads model from HuggingFace on first launch.
 
     Args:
         gpu_type: GPU type ID string
         gpu_count: Number of GPUs
     """
-    # Standard vLLM pod - install vLLM if needed, then start server
-    model_path = "/workspace/models/mistral-7b-instruct-awq"
-    gpu_mem = "0.7"
-
+    gpu_mem = "0.9"
     api_key = os.getenv("VLLM_API_KEY", "rk_PLACEHOLDER")
 
-    # Mistral chat template - base64 encoded to avoid shell escaping issues
-    # Original: {{ bos_token }}{% for message in messages %}{% if message['role'] == 'user' %}[INST] {{ message['content'] }} [/INST]{% elif message['role'] == 'assistant' %}{{ message['content'] }}{{ eos_token }}{% endif %}{% endfor %}
-    import base64
-    mistral_template_b64 = base64.b64encode(
-        b"{{ bos_token }}{% for message in messages %}{% if message['role'] == 'user' %}[INST] {{ message['content'] }} [/INST]{% elif message['role'] == 'assistant' %}{{ message['content'] }}{{ eos_token }}{% endif %}{% endfor %}"
-    ).decode()
-
-    # Startup command that installs vLLM if missing, creates chat template, then runs server
+    # Startup command:
+    # 1. Install vLLM
+    # 2. Download model from HuggingFace (cached in HF_HOME)
+    # 3. Start vLLM server with AWQ quantization
     startup_cmd = (
         f"echo '=== Starting vLLM Setup ===' && "
-        f"pip install --upgrade pip && "
-        f"python3 -c 'import vllm' 2>/dev/null || (echo 'Installing vLLM...' && pip install vllm && echo 'vLLM installed successfully') && "
-        f"mkdir -p /workspace/chat_templates && "
-        f"echo '{mistral_template_b64}' | base64 -d > /workspace/chat_templates/mistral.jinja && "
-        f"echo 'Starting vLLM server...' && "
+        f"pip install -q --upgrade pip && "
+        f"pip install -q vllm && "
+        f"echo 'Downloading model from HuggingFace (first run takes a few minutes)...' && "
         f"python3 -m vllm.entrypoints.openai.api_server "
-        f"--model {model_path} "
+        f"--model {HF_MODEL_ID} "
+        f"--quantization awq "
+        f"--dtype auto "
         f"--gpu-memory-utilization {gpu_mem} "
         f"--tensor-parallel-size {gpu_count} "
         f"--host 0.0.0.0 "
         f"--port 8000 "
-        f"--api-key {api_key} "
-        f"--chat-template /workspace/chat_templates/mistral.jinja"
+        f"--api-key {api_key}"
     )
 
     payload = {
@@ -82,17 +77,14 @@ def create_pod(gpu_type, gpu_count):
         "computeType": "GPU",
         "gpuCount": gpu_count,
         "gpuTypeIds": [gpu_type],
-        "containerDiskInGb": 40,
+        "containerDiskInGb": 50,  # Extra space for model download (~4GB) + vLLM + cache
         "imageName": "runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel",
         "supportPublicIp": True,
-        "networkVolumeId": NETWORK_VOLUME_ID,
-        "volumeMountPath": "/workspace",
-        "ports": ["7000/http", "7001/http", "8000/http", "8001/http", "8002/http", "8003/http", "8004/http", "8005/http", "8006/http", "8007/http", "8008/http"],
+        "ports": ["8000/http"],
         "env": {
             "TENSOR_PARALLEL_SIZE": str(gpu_count),
             "VLLM_API_KEY": api_key,
-            "HF_HOME": "/workspace/hf",
-            "TRANSFORMERS_CACHE": "/workspace/hf",
+            "HF_HOME": "/root/.cache/huggingface",
         },
         "dockerStartCmd": [
             "/bin/bash",
