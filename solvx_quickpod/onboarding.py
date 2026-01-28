@@ -6,12 +6,15 @@ Handles first-run setup for new users, including:
 - RunPod account signup guidance
 - API key configuration
 - Server password setup
+- Desktop shortcut creation
 
 Configuration is stored in ~/.myai/.env for persistence across sessions.
 """
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import webbrowser
 from pathlib import Path
 from typing import Tuple
@@ -226,3 +229,83 @@ VLLM_API_KEY={vllm_key}
 
     env_path.write_text(content, encoding="utf-8")
     print("\nConfiguration saved!")
+
+    # Offer to create desktop shortcut
+    _offer_desktop_shortcut()
+
+
+# =============================================================================
+# DESKTOP SHORTCUT CREATION
+# =============================================================================
+
+def _offer_desktop_shortcut() -> None:
+    """Offer to create a desktop shortcut for the application."""
+    if sys.platform != "win32":
+        return  # Only supported on Windows currently
+
+    print("\n" + "-" * 50)
+    response = input("Create desktop shortcut? (y/n): ").strip().lower()
+
+    if response == "y":
+        if _create_desktop_shortcut():
+            print("Desktop shortcut created!")
+        else:
+            print("Could not create shortcut automatically.")
+            print("You can create one manually by right-clicking the .exe")
+
+
+def _create_desktop_shortcut() -> bool:
+    """
+    Create a Windows desktop shortcut for the application.
+
+    Returns:
+        True if successful, False otherwise.
+    """
+    try:
+        # Get the executable path
+        if getattr(sys, "frozen", False):
+            exe_path = Path(sys.executable)
+        else:
+            # Running as script - find the exe in dist/
+            exe_path = Path(__file__).parent.parent / "dist" / "solvx-quickpod.exe"
+            if not exe_path.exists():
+                return False
+
+        desktop = Path.home() / "Desktop"
+        shortcut_path = desktop / "SolvX QuickPod.lnk"
+
+        # Try to find the icon
+        icon_path = None
+        if getattr(sys, "frozen", False):
+            # Icon is embedded in exe when frozen
+            icon_path = exe_path
+        else:
+            # Development mode - use icons folder
+            icon_candidate = Path(__file__).parent.parent / "icons" / "favicon.ico"
+            if icon_candidate.exists():
+                icon_path = icon_candidate
+
+        # PowerShell script to create shortcut
+        ps_script = f'''
+$WshShell = New-Object -ComObject WScript.Shell
+$Shortcut = $WshShell.CreateShortcut("{shortcut_path}")
+$Shortcut.TargetPath = "{exe_path}"
+$Shortcut.WorkingDirectory = "{exe_path.parent}"
+$Shortcut.Description = "AI Chat on RunPod Cloud GPUs"
+'''
+
+        if icon_path:
+            ps_script += f'$Shortcut.IconLocation = "{icon_path}"\n'
+
+        ps_script += "$Shortcut.Save()"
+
+        result = subprocess.run(
+            ["powershell", "-Command", ps_script],
+            capture_output=True,
+            text=True,
+        )
+
+        return result.returncode == 0 and shortcut_path.exists()
+
+    except Exception:
+        return False
