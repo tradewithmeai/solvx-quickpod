@@ -49,6 +49,29 @@ def get_icon_path() -> Path:
     return None
 
 
+def get_desktop_path() -> Path:
+    """
+    Get the actual Desktop folder path, handling OneDrive redirection.
+
+    Returns:
+        Path to the user's Desktop folder.
+    """
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["powershell", "-Command", "[Environment]::GetFolderPath('Desktop')"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return Path(result.stdout.strip())
+    except Exception:
+        pass
+
+    # Fallback to standard path
+    return Path.home() / "Desktop"
+
+
 def create_windows_shortcut(exe_path: Path, icon_path: Path | None) -> bool:
     """
     Create a Windows desktop shortcut using PowerShell.
@@ -63,7 +86,7 @@ def create_windows_shortcut(exe_path: Path, icon_path: Path | None) -> bool:
     try:
         import subprocess
 
-        desktop = Path.home() / "Desktop"
+        desktop = get_desktop_path()
         shortcut_path = desktop / "SolvX QuickPod.lnk"
 
         # PowerShell script to create shortcut

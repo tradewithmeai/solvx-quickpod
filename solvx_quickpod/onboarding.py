@@ -254,6 +254,29 @@ def _offer_desktop_shortcut() -> None:
             print("You can create one manually by right-clicking the .exe")
 
 
+def _get_desktop_path() -> Path:
+    """
+    Get the actual Desktop folder path, handling OneDrive redirection.
+
+    Returns:
+        Path to the user's Desktop folder.
+    """
+    try:
+        # Use PowerShell to get the correct desktop path (handles OneDrive)
+        result = subprocess.run(
+            ["powershell", "-Command", "[Environment]::GetFolderPath('Desktop')"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return Path(result.stdout.strip())
+    except Exception:
+        pass
+
+    # Fallback to standard path
+    return Path.home() / "Desktop"
+
+
 def _create_desktop_shortcut() -> bool:
     """
     Create a Windows desktop shortcut for the application.
@@ -271,7 +294,7 @@ def _create_desktop_shortcut() -> bool:
             if not exe_path.exists():
                 return False
 
-        desktop = Path.home() / "Desktop"
+        desktop = _get_desktop_path()
         shortcut_path = desktop / "SolvX QuickPod.lnk"
 
         # Try to find the icon
