@@ -42,46 +42,35 @@ def create_master_icon(output_path: str = "icons/icon-master-1024.png") -> None:
     Create a 1024x1024 master icon with SQ initials.
 
     Design:
-    - Rounded rectangle background in deep blue
-    - "SQ" text in orange/white
-    - Clean, modern look that scales well
+    - Full bleed rounded rectangle (no padding)
+    - MASSIVE "SQ" text filling nearly all the space
+    - Clean, bold look that scales well
     """
     size = 1024
-    padding = 80  # Padding from edges
-    corner_radius = 180  # Rounded corners
+    corner_radius = 120  # Smaller corners to maximize space
 
     # Create image with transparent background
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    # Draw rounded rectangle background
+    # Draw rounded rectangle background - FULL BLEED
     bg_color = hex_to_rgb(DEEP_BLUE)
     draw.rounded_rectangle(
-        [padding, padding, size - padding, size - padding],
+        [0, 0, size, size],
         radius=corner_radius,
         fill=bg_color,
     )
 
-    # Add a subtle gradient effect with a slightly lighter inner rectangle
-    inner_padding = padding + 40
-    inner_color = hex_to_rgb(BRIGHT_BLUE)
-    draw.rounded_rectangle(
-        [inner_padding, inner_padding, size - inner_padding, size - inner_padding],
-        radius=corner_radius - 30,
-        fill=None,
-        outline=inner_color,
-        width=8,
-    )
-
-    # Try to load a nice font, fall back to default
-    font_size = 420
+    # Try to load a BOLD font - start with massive size
+    font_size = 750  # Much bigger!
     try:
-        # Try common system fonts
+        # Prefer bold/black fonts for maximum visibility
         font_paths = [
+            "C:/Windows/Fonts/arialbd.ttf",  # Arial Bold
+            "C:/Windows/Fonts/ariblk.ttf",   # Arial Black
+            "C:/Windows/Fonts/impact.ttf",   # Impact
+            "C:/Windows/Fonts/segoeuib.ttf", # Segoe UI Bold
             "C:/Windows/Fonts/arial.ttf",
-            "C:/Windows/Fonts/arialbd.ttf",
-            "C:/Windows/Fonts/segoeui.ttf",
-            "C:/Windows/Fonts/segoeuib.ttf",
             "/System/Library/Fonts/Helvetica.ttc",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         ]
@@ -92,7 +81,7 @@ def create_master_icon(output_path: str = "icons/icon-master-1024.png") -> None:
                 break
         if font is None:
             font = ImageFont.load_default()
-            font_size = 100  # Default font is much smaller
+            font_size = 100
     except Exception:
         font = ImageFont.load_default()
         font_size = 100
@@ -107,12 +96,9 @@ def create_master_icon(output_path: str = "icons/icon-master-1024.png") -> None:
     text_height = bbox[3] - bbox[1]
 
     x = (size - text_width) // 2
-    y = (size - text_height) // 2 - 40  # Slight adjustment for visual centering
+    y = (size - text_height) // 2 - 20
 
-    # Draw text with slight shadow for depth
-    shadow_offset = 6
-    shadow_color = (0, 0, 0, 100)
-    draw.text((x + shadow_offset, y + shadow_offset), text, font=font, fill=shadow_color)
+    # Draw text - no shadow, just solid color for maximum clarity
     draw.text((x, y), text, font=font, fill=text_color)
 
     # Create output directory

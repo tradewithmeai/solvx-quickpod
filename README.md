@@ -1,84 +1,133 @@
-# SolvX QuickPod
+<p align="center">
+  <img src="icons/icon-256.png" alt="SolvX QuickPod" width="128" height="128">
+</p>
 
-One-click LLM chat on RunPod. No setup complexity - just click, wait, chat.
+<h1 align="center">SolvX QuickPod</h1>
 
-## Get Started
+<p align="center">
+  <strong>One-click AI chat on RunPod cloud GPUs</strong>
+</p>
 
-### 1. Create a RunPod Account
+<p align="center">
+  <a href="https://github.com/tradewithmeai/runpod-app/actions/workflows/build.yml">
+    <img src="https://github.com/tradewithmeai/runpod-app/actions/workflows/build.yml/badge.svg" alt="Build Status">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT">
+  </a>
+  <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+">
+</p>
 
-**New to RunPod?** Sign up and get $5 free credit:
-**https://runpod.io?ref=q04x36mf**
+<p align="center">
+  <!-- TODO: Add screenshot here -->
+  <!-- <img src="assets/screenshot-chat.png" alt="Chat Demo" width="600"> -->
+</p>
 
-After signing up:
-1. Go to **Settings > API Keys**
-2. Click **Create API Key** and copy it
+---
 
-### 2. Set Your API Keys
+## Features
 
-Create a `.env` file or set environment variables:
+- **One-Click Launch** - Download, run, chat. No complex setup.
+- **Cloud GPU Power** - RTX 3090 running Mistral-7B-Instruct
+- **Guided Onboarding** - First-run wizard walks you through RunPod signup
+- **Session Recovery** - Reconnect to running pods automatically
+- **Debug Mode** - View raw JSON API exchanges with `/json`
+- **Open Source** - All code available, learn how it works
 
-**Windows (PowerShell):**
-```powershell
-$env:RUNPOD_API_KEY="your_runpod_api_key"
-$env:VLLM_API_KEY="any_password_you_choose"
-```
+## Quick Start
 
-**Linux/macOS:**
+### Download & Run
+
+1. **Download** the latest release for your platform:
+   - [Windows (.exe)](https://github.com/tradewithmeai/runpod-app/releases)
+   - [Linux](https://github.com/tradewithmeai/runpod-app/releases)
+   - [macOS](https://github.com/tradewithmeai/runpod-app/releases)
+
+2. **Run** the executable - the onboarding wizard will guide you through:
+   - Creating a RunPod account (get **$5 free credit** with $10 deposit)
+   - Setting up your API key
+   - Creating a server password
+
+3. **Chat** - That's it! The app launches a GPU pod and starts your chat session.
+
+### From Source
+
 ```bash
-export RUNPOD_API_KEY="your_runpod_api_key"
-export VLLM_API_KEY="any_password_you_choose"
-```
-
-The `VLLM_API_KEY` is a password you choose - use any string you like.
-
-### 3. Run
-
-```bash
+git clone https://github.com/tradewithmeai/runpod-app.git
+cd runpod-app
+pip install -r requirements.txt
 python -m solvx_quickpod.main
 ```
 
-That's it. The app will:
-- Launch an RTX 3090 pod with Mistral-7B
-- Wait for the model to load
-- Start a chat session
+## Cost
 
-### 4. Chat Commands
+| GPU | Hourly Rate | $15 Credit = |
+|-----|-------------|--------------|
+| RTX 3090 | ~$0.44/hour | ~34 hours of chat |
 
-- `/stop` - Terminate pod and stop billing
-- `/help` - Show available commands
-- `Ctrl+C` - Exit chat (pod keeps running)
+Use `/stop` to terminate the pod and stop billing when you're done.
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show available commands |
+| `/json` | Toggle JSON debug mode (see raw API requests/responses) |
+| `/stop` | Terminate pod and stop billing |
+| `Ctrl+C` | Exit chat (pod keeps running for reconnection) |
 
 ## Session Recovery
 
-If you close the app while a pod is running, just run the app again - it will detect the existing pod and offer to reconnect.
+If you close the app while a pod is running:
+1. Run the app again
+2. It detects your existing pod
+3. Choose to reconnect or start fresh
 
-## Building Executables
+## Building from Source
+
+<details>
+<summary>Build Instructions</summary>
 
 ### Windows
-```
-packaging\windows\build.ps1
+```powershell
+.\packaging\windows\build.ps1
 ```
 
 ### Linux
-```
+```bash
 ./packaging/linux/build.sh
 ```
 
 ### macOS
-```
+```bash
 ./packaging/mac/build.sh
 ```
 
 The executable will be at `dist/solvx-quickpod`.
 
+</details>
+
 ## Troubleshooting
 
 | Issue | Solution |
 |-------|----------|
-| `502 from proxy` | Normal during startup. Wait 2-5 minutes for model to load. |
-| `RUNPOD_API_KEY not set` | Set the environment variable before running |
-| `VLLM_API_KEY not set` | Set the environment variable before running |
+| "502 from proxy" | Normal during startup. Model loading takes 2-3 minutes. |
+| Pod won't start | Check your RunPod credit balance |
+| Connection lost | Pod may have terminated. Run app again to start fresh. |
+
+## How It Works
+
+1. **Pod Creation** - Launches a RunPod GPU instance with vLLM
+2. **Model Loading** - Downloads Mistral-7B-Instruct-AWQ from HuggingFace
+3. **Chat Interface** - OpenAI-compatible API with streaming responses
+4. **Session Logging** - Conversations saved to `~/.myai/chat_logs/`
+
+## License
+
+[MIT](LICENSE) - Use it, modify it, learn from it.
 
 ---
 
-Don't have RunPod? **Get $5 free credit: https://runpod.io?ref=q04x36mf**
+<p align="center">
+  <strong>New to RunPod?</strong> <a href="https://runpod.io?ref=q04x36mf">Sign up and get $5 free credit</a>
+</p>

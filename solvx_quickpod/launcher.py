@@ -178,8 +178,8 @@ def wait_for_running(pod_id: str) -> None:
     Args:
         pod_id: The pod identifier to monitor.
     """
-    print("Waiting for pod to be ready...")
-    last_snapshot: Optional[tuple] = None
+    print("Starting GPU pod...")
+    last_stage: Optional[str] = None
 
     while True:
         try:
@@ -197,20 +197,24 @@ def wait_for_running(pod_id: str) -> None:
             machine_id = data.get("machineId")
             public_ip = data.get("publicIp")
 
-            # Display status changes
-            snapshot = (desired_status, bool(last_started), machine_id, public_ip)
-            if snapshot != last_snapshot:
-                print(
-                    f"  desiredStatus={desired_status} "
-                    f"lastStartedAt={'set' if last_started else 'unset'} "
-                    f"machineId={machine_id} "
-                    f"publicIp={'set' if public_ip else 'unset'}",
-                    flush=True,
-                )
-                last_snapshot = snapshot
+            # Determine user-friendly stage
+            if machine_id and last_started:
+                stage = "Container starting..."
+            elif machine_id:
+                stage = "GPU assigned, preparing container..."
+            elif desired_status == "RUNNING":
+                stage = "Finding available GPU..."
+            else:
+                stage = "Initializing..."
+
+            # Display stage changes
+            if stage != last_stage:
+                print(f"  {stage}", flush=True)
+                last_stage = stage
 
             # Pod is ready when RUNNING and started
             if desired_status == "RUNNING" and last_started:
+                print("  GPU pod is running!")
                 return
 
         except requests.RequestException:
@@ -229,13 +233,13 @@ def wait_for_proxy(base_url: str) -> None:
     Args:
         base_url: The pod's proxy URL to check.
     """
-    print("Waiting for proxy / port 8000...")
+    print("Connecting to server...")
 
     while True:
         try:
             response = requests.get(base_url, timeout=5)
             if response.status_code < 500:
-                print("Proxy is live.")
+                print("  Server connection established!")
                 return
         except requests.RequestException:
             pass  # Retry on connection errors

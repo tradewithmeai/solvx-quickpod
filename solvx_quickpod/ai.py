@@ -77,6 +77,7 @@ if not RUNPOD_API_KEY or not VLLM_API_KEY:
 # GPU Configuration
 GPU_TYPE: str = "NVIDIA GeForce RTX 3090"
 GPU_COUNT: int = 1
+GPU_COST_PER_HOUR: float = 0.44  # Approximate cost in USD
 
 # Model Configuration
 MODEL_ID: str = "TheBloke/Mistral-7B-Instruct-v0.2-AWQ"
@@ -167,8 +168,9 @@ def wait_for_vllm_ready(pod_id: str) -> None:
     Raises:
         SystemExit: If the pod terminates while waiting.
     """
-    print("Waiting for vLLM API to be ready...")
+    print("Loading AI model (this takes 2-3 minutes on first run)...")
     check_count = 0
+    dot_count = 0
 
     while True:
         try:
@@ -181,8 +183,13 @@ def wait_for_vllm_ready(pod_id: str) -> None:
             if response.status_code == 200:
                 data = response.json()
                 models = [m.get("id") for m in data.get("data", [])]
-                print(f"vLLM API ready (models: {models})")
+                print(f"\n  Model loaded: {models[0] if models else 'unknown'}")
                 return
+
+            # Show progress dots
+            dot_count += 1
+            if dot_count % 5 == 0:
+                print(".", end="", flush=True)
 
         except requests.RequestException:
             pass  # Retry on network errors
@@ -192,7 +199,10 @@ def wait_for_vllm_ready(pod_id: str) -> None:
         if check_count >= 10:
             check_count = 0
             if not is_pod_running(pod_id):
-                print("\nPod terminated. Exiting.")
+                print("\n\nPod terminated unexpectedly. This may be due to:")
+                print("  - Insufficient RunPod credit")
+                print("  - Manual termination from RunPod console")
+                print("  - GPU availability issues")
                 sys.exit(0)
 
         time.sleep(3)
@@ -264,8 +274,8 @@ def run_chat(pod_id: str) -> None:
     last_pod_check = time.time()
 
     # Display session info
-    console.print(f"[dim]Temperature: {TEMPERATURE}[/dim]")
-    console.print(f"[dim]History: Last {MAX_TURNS} turns[/dim]\n")
+    console.print(f"[dim]GPU: RTX 3090 (~${GPU_COST_PER_HOUR:.2f}/hour) | Model: Mistral-7B[/dim]")
+    console.print(f"[dim]Temperature: {TEMPERATURE} | History: Last {MAX_TURNS} turns[/dim]\n")
     console.print("[bold]Chat started. Commands: /json, /stop, /help. Ctrl+C to exit.[/bold]\n")
 
     while True:
@@ -328,17 +338,23 @@ def run_chat(pod_id: str) -> None:
 
         except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError) as e:
             if not is_pod_running(pod_id):
-                console.print("\n[dim]Pod terminated. Exiting.[/dim]")
+                console.print("\n[dim]Pod terminated. This may be due to:[/dim]")
+                console.print("[dim]  - Insufficient RunPod credit[/dim]")
+                console.print("[dim]  - Manual termination from RunPod console[/dim]")
+                console.print("[dim]  - Session timeout[/dim]")
                 sys.exit(0)
-            console.print(f"\n[bold red]Connection error:[/bold red] {e}")
+            console.print("\n[yellow]Connection issue - retrying...[/yellow]")
+            console.print("[dim]If this persists, check your internet connection.[/dim]\n")
 
 
 def _show_help() -> None:
     """Display available chat commands."""
     console.print("[dim]Available commands:[/dim]")
     console.print("[dim]  /json - Toggle JSON request/response display[/dim]")
-    console.print("[dim]  /stop - Terminate pod and exit[/dim]")
-    console.print("[dim]  /help - Show this help[/dim]\n")
+    console.print("[dim]  /stop - Terminate pod and stop billing[/dim]")
+    console.print("[dim]  /help - Show this help[/dim]")
+    console.print(f"[dim]\nGPU Cost: ~${GPU_COST_PER_HOUR:.2f}/hour (RTX 3090)[/dim]")
+    console.print("[dim]Use /stop when done to avoid unnecessary charges.[/dim]\n")
 
 
 def _confirm_stop(pod_id: str) -> bool:
@@ -408,7 +424,14 @@ def _stream_response(config, messages: List[Dict[str, str]], show_json: bool) ->
 
             if response.status_code != 200:
                 error_text = response.read().decode()
-                console.print(f"\n[bold red]HTTP {response.status_code}:[/bold red] {error_text}")
+                if response.status_code == 502:
+                    console.print("\n[yellow]Model is still loading, please wait a moment and try again...[/yellow]")
+                elif response.status_code == 503:
+                    console.print("\n[yellow]Server temporarily unavailable. Please try again.[/yellow]")
+                elif response.status_code == 401:
+                    console.print("\n[red]Authentication error. Your API key may be invalid.[/red]")
+                else:
+                    console.print(f"\n[red]Server error ({response.status_code}): {error_text[:200]}[/red]")
                 return ""
 
             # Stream response tokens
@@ -459,15 +482,17 @@ def main() -> None:
     5. Start interactive chat session
     """
     try:
-        # Welcome
-        print("\n=== SolvX QuickPod ===\n")
+        # Welcome with version
+        from solvx_quickpod import __version__
+        print(f"\n=== SolvX QuickPod v{__version__} ===\n")
 
         # Check for existing pod
         existing_pod_id = check_existing_pod()
 
         if existing_pod_id:
-            print(f"=== Existing Pod Found ===")
+            print("=== Existing Pod Found ===")
             print(f"Pod ID: {existing_pod_id}")
+            print(f"[Note: Pod is still running and billing at ~${GPU_COST_PER_HOUR:.2f}/hour]")
 
             while True:
                 choice = input("\nReconnect to this pod? (y/n): ").strip().lower()
@@ -481,6 +506,7 @@ def main() -> None:
 
                 if choice == "n":
                     print("\nStarting new pod instead...")
+                    print("(Previous pod will keep running - use RunPod console to stop it)")
                     break
 
                 print("Please enter 'y' or 'n'")
