@@ -65,41 +65,39 @@ def run_onboarding() -> tuple[str, str]:
     print("       Welcome to SolvX QuickPod")
     print("=" * 50)
     print("\nChat with AI using RunPod's cloud GPUs.")
-    print("\nFirst, you'll need a RunPod account (takes 2 minutes).")
-    print("Sign up now and get $5 FREE credit when you add $10.")
-    print("That's 30+ hours of AI chat time!")
+    print("\nYou'll need a RunPod account and API key to continue.")
+    print("New users get $5 FREE credit when adding $10.")
 
-    input("\nPress Enter to open RunPod signup...")
-    webbrowser.open(SIGNUP_URL)
-
+    # Ask before opening signup page
     print("\n" + "-" * 50)
-    print("RunPod signup page opened in your browser.")
-    print("\nComplete these steps:")
-    print("  1. Create your account")
-    print("  2. Add $10 credit (you'll get $5 bonus = $15 total)")
+    open_signup = input("Open RunPod signup page? (y/n): ").strip().lower()
+    if open_signup == 'y':
+        webbrowser.open(SIGNUP_URL)
+        print("Signup page opened.")
+        input("\nPress Enter when ready to continue...")
 
-    input("\nPress Enter when you've signed up...")
-
+    # Ask before opening settings page
     print("\n" + "-" * 50)
-    print("Now let's get your API key:")
-    print("\n  1. Scroll to 'API Keys' section")
+    print("To get your API key:")
+    print("  1. Go to RunPod Settings > API Keys")
     print("  2. Click 'Create API Key'")
-    print("  3. Name it anything (e.g., 'SolvX')")
-    print("  4. Select 'All' permissions")
-    print("  5. Click 'Create' and COPY the key")
-    print("\nOpening settings page...")
-    webbrowser.open(SETTINGS_URL)
+    print("  3. Name it anything, select 'All' permissions")
+    print("  4. Copy the key")
+
+    open_settings = input("\nOpen RunPod settings page? (y/n): ").strip().lower()
+    if open_settings == 'y':
+        webbrowser.open(SETTINGS_URL)
+        print("Settings page opened.")
 
     # Get RunPod API key
     print("\n" + "-" * 50)
     while True:
-        runpod_key = input("Paste your RunPod API key here: ").strip()
+        runpod_key = input("Paste your RunPod API key: ").strip()
 
         if not runpod_key:
             print("API key cannot be empty. Please try again.")
             continue
 
-        # Basic validation - RunPod keys typically start with rpa_ but accept any non-empty string
         if len(runpod_key) < 10:
             print("That doesn't look like a valid API key. Please try again.")
             continue
@@ -108,8 +106,7 @@ def run_onboarding() -> tuple[str, str]:
 
     # Get VLLM password
     print("\n" + "-" * 50)
-    print("Now create a password for your AI server.")
-    print("This secures your connection. Use any password you like.")
+    print("Create a password for your AI server.")
     print("(Tip: Use something memorable, like 'myai123')")
 
     while True:
