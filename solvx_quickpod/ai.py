@@ -4,15 +4,15 @@ import os
 import sys
 
 # Check for first run BEFORE loading env vars
-from solvx_quickpod.onboarding import check_first_run, run_onboarding, save_env_file
+from solvx_quickpod.onboarding import check_first_run, run_onboarding, save_env_file, get_env_path
 
 if check_first_run():
     runpod_key, vllm_key = run_onboarding()
     save_env_file(runpod_key, vllm_key)
     print("\nStarting SolvX QuickPod...\n")
 
-from dotenv import load_dotenv, find_dotenv
-load_dotenv(find_dotenv(), override=True)  # Load .env file (override any existing vars)
+from dotenv import load_dotenv
+load_dotenv(get_env_path(), override=True)  # Load .env from ~/.myai/.env
 
 import time
 import json

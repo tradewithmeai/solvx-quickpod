@@ -1,11 +1,14 @@
-from dotenv import load_dotenv, find_dotenv
-load_dotenv(find_dotenv())  # Find and load .env file (searches up directory tree)
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env from ~/.myai/.env (consistent location for packaged exe)
+_env_path = Path.home() / ".myai" / ".env"
+load_dotenv(_env_path)
 
 import os
 import time
 import json
 import requests
-from pathlib import Path
 
 RUNPOD_API_KEY = os.getenv("RUNPOD_API_KEY")
 RUNPOD_API = "https://rest.runpod.io/v1/pods"

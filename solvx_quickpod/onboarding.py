@@ -15,13 +15,10 @@ SETTINGS_URL = "https://www.runpod.io/console/user/settings"
 
 
 def get_env_path() -> Path:
-    """Get the path to the .env file based on execution context."""
-    if getattr(sys, 'frozen', False):
-        # Running as packaged exe
-        return Path(sys.executable).parent / ".env"
-    else:
-        # Running as script
-        return Path(__file__).parent.parent / ".env"
+    """Get the path to the .env file. Always uses ~/.myai/.env for consistency."""
+    myai_dir = Path.home() / ".myai"
+    myai_dir.mkdir(exist_ok=True)
+    return myai_dir / ".env"
 
 
 def check_first_run() -> bool:
