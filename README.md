@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/tradewithmeai/runpod-app/actions/workflows/build.yml">
-    <img src="https://github.com/tradewithmeai/runpod-app/actions/workflows/build.yml/badge.svg" alt="Build Status">
+  <a href="https://github.com/tradewithmeai/solvx-quickpod/actions/workflows/build.yml">
+    <img src="https://github.com/tradewithmeai/solvx-quickpod/actions/workflows/build.yml/badge.svg" alt="Build Status">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT">
@@ -32,6 +32,7 @@
 - **Guided Onboarding** - First-run wizard walks you through RunPod signup
 - **Session Recovery** - Reconnect to running pods automatically
 - **Debug Mode** - View raw JSON API exchanges with `/json`
+- **Exit Protection** - Prompts to terminate pod on exit to prevent surprise charges
 - **Open Source** - All code available, learn how it works
 
 ## Quick Start
@@ -39,9 +40,9 @@
 ### Download & Run
 
 1. **Download** the latest release for your platform:
-   - [Windows (.exe)](https://github.com/tradewithmeai/runpod-app/releases)
-   - [Linux](https://github.com/tradewithmeai/runpod-app/releases)
-   - [macOS](https://github.com/tradewithmeai/runpod-app/releases)
+   - [Windows (.exe)](https://github.com/tradewithmeai/solvx-quickpod/releases/latest)
+   - [Linux](https://github.com/tradewithmeai/solvx-quickpod/releases/latest)
+   - [macOS](https://github.com/tradewithmeai/solvx-quickpod/releases/latest)
 
 2. **Run** the executable - the onboarding wizard will guide you through:
    - Creating a RunPod account (get **$5 free credit** with $10 deposit)
@@ -53,8 +54,8 @@
 ### From Source
 
 ```bash
-git clone https://github.com/tradewithmeai/runpod-app.git
-cd runpod-app
+git clone https://github.com/tradewithmeai/solvx-quickpod.git
+cd solvx-quickpod
 pip install -r requirements.txt
 python -m solvx_quickpod.main
 ```
@@ -74,7 +75,7 @@ Use `/stop` to terminate the pod and stop billing when you're done.
 | `/help` | Show available commands |
 | `/json` | Toggle JSON debug mode (see raw API requests/responses) |
 | `/stop` | Terminate pod and stop billing |
-| `Ctrl+C` | Exit chat (pod keeps running for reconnection) |
+| `Ctrl+C` | Exit chat (prompts to terminate pod) |
 
 ## Session Recovery
 
