@@ -1,66 +1,129 @@
 #!/usr/bin/env python3
 """
-First-run onboarding flow for SolvX QuickPod.
-Guides users through RunPod signup and API key configuration.
+SolvX QuickPod - Onboarding Module
+
+Handles first-run setup for new users, including:
+- RunPod account signup guidance
+- API key configuration
+- Server password setup
+
+Configuration is stored in ~/.myai/.env for persistence across sessions.
 """
 
-import os
-import sys
+from __future__ import annotations
+
 import webbrowser
 from pathlib import Path
+from typing import Tuple
+
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+
+# RunPod URLs with referral tracking
+SIGNUP_URL: str = "https://runpod.io?ref=q04x36mf"
+SETTINGS_URL: str = "https://www.runpod.io/console/user/settings"
+
+# Minimum length for API key validation
+MIN_API_KEY_LENGTH: int = 10
 
 
-SIGNUP_URL = "https://runpod.io?ref=q04x36mf"
-SETTINGS_URL = "https://www.runpod.io/console/user/settings"
-
+# =============================================================================
+# PATH MANAGEMENT
+# =============================================================================
 
 def get_env_path() -> Path:
-    """Get the path to the .env file. Always uses ~/.myai/.env for consistency."""
+    """
+    Get the path to the environment configuration file.
+
+    The .env file is stored in ~/.myai/ to ensure consistent behavior
+    regardless of where the executable is located.
+
+    Returns:
+        Path to the .env file (~/.myai/.env)
+    """
     myai_dir = Path.home() / ".myai"
     myai_dir.mkdir(exist_ok=True)
     return myai_dir / ".env"
 
 
+# =============================================================================
+# FIRST RUN DETECTION
+# =============================================================================
+
 def check_first_run() -> bool:
     """
-    Return True if onboarding is needed.
-    Onboarding is needed if .env doesn't exist or is missing required keys.
+    Determine if onboarding is required.
+
+    Onboarding is needed when:
+    - The .env file does not exist
+    - Required keys (RUNPOD_API_KEY, VLLM_API_KEY) are missing or invalid
+
+    Returns:
+        True if onboarding should be run, False otherwise.
     """
     env_path = get_env_path()
 
     if not env_path.exists():
         return True
 
-    # Check if file has required keys
     try:
-        content = env_path.read_text()
+        content = env_path.read_text(encoding="utf-8")
         has_runpod = False
         has_vllm = False
 
         for line in content.splitlines():
             line = line.strip()
-            if line.startswith('#') or '=' not in line:
+
+            # Skip comments and empty lines
+            if line.startswith("#") or "=" not in line:
                 continue
 
-            key, value = line.split('=', 1)
+            key, value = line.split("=", 1)
             key = key.strip()
             value = value.strip().strip('"').strip("'")
 
+            # Check for valid (non-placeholder) values
             if key == "RUNPOD_API_KEY" and value and not value.startswith("your_"):
                 has_runpod = True
             if key == "VLLM_API_KEY" and value and not value.startswith("your_"):
                 has_vllm = True
 
         return not (has_runpod and has_vllm)
-    except Exception:
+
+    except (IOError, OSError):
         return True
 
 
-def run_onboarding() -> tuple[str, str]:
+# =============================================================================
+# ONBOARDING FLOW
+# =============================================================================
+
+def run_onboarding() -> Tuple[str, str]:
     """
-    Guide user through RunPod signup and API key creation.
-    Returns (runpod_api_key, vllm_api_key).
+    Execute the interactive onboarding flow.
+
+    Guides the user through:
+    1. RunPod account creation (optional browser launch)
+    2. API key retrieval (optional browser launch)
+    3. API key input
+    4. Server password creation
+
+    Returns:
+        Tuple of (runpod_api_key, vllm_api_key)
     """
+    _print_welcome()
+    _handle_signup()
+    _handle_api_key_instructions()
+
+    runpod_key = _get_api_key()
+    vllm_key = _get_password()
+
+    return runpod_key, vllm_key
+
+
+def _print_welcome() -> None:
+    """Display the welcome message."""
     print("\n" + "=" * 50)
     print("       Welcome to SolvX QuickPod")
     print("=" * 50)
@@ -68,15 +131,20 @@ def run_onboarding() -> tuple[str, str]:
     print("\nYou'll need a RunPod account and API key to continue.")
     print("New users get $5 FREE credit when adding $10.")
 
-    # Ask before opening signup page
+
+def _handle_signup() -> None:
+    """Offer to open the RunPod signup page."""
     print("\n" + "-" * 50)
-    open_signup = input("Open RunPod signup page? (y/n): ").strip().lower()
-    if open_signup == 'y':
+    response = input("Open RunPod signup page? (y/n): ").strip().lower()
+
+    if response == "y":
         webbrowser.open(SIGNUP_URL)
         print("Signup page opened.")
         input("\nPress Enter when ready to continue...")
 
-    # Ask before opening settings page
+
+def _handle_api_key_instructions() -> None:
+    """Display API key instructions and offer to open settings page."""
     print("\n" + "-" * 50)
     print("To get your API key:")
     print("  1. Go to RunPod Settings > API Keys")
@@ -84,45 +152,69 @@ def run_onboarding() -> tuple[str, str]:
     print("  3. Name it anything, select 'All' permissions")
     print("  4. Copy the key")
 
-    open_settings = input("\nOpen RunPod settings page? (y/n): ").strip().lower()
-    if open_settings == 'y':
+    response = input("\nOpen RunPod settings page? (y/n): ").strip().lower()
+
+    if response == "y":
         webbrowser.open(SETTINGS_URL)
         print("Settings page opened.")
 
-    # Get RunPod API key
-    print("\n" + "-" * 50)
-    while True:
-        runpod_key = input("Paste your RunPod API key: ").strip()
 
-        if not runpod_key:
+def _get_api_key() -> str:
+    """
+    Prompt for and validate the RunPod API key.
+
+    Returns:
+        The validated API key string.
+    """
+    print("\n" + "-" * 50)
+
+    while True:
+        api_key = input("Paste your RunPod API key: ").strip()
+
+        if not api_key:
             print("API key cannot be empty. Please try again.")
             continue
 
-        if len(runpod_key) < 10:
+        if len(api_key) < MIN_API_KEY_LENGTH:
             print("That doesn't look like a valid API key. Please try again.")
             continue
 
-        break
+        return api_key
 
-    # Get VLLM password
+
+def _get_password() -> str:
+    """
+    Prompt for the vLLM server password.
+
+    Returns:
+        The password string.
+    """
     print("\n" + "-" * 50)
     print("Create a password for your AI server.")
     print("(Tip: Use something memorable, like 'myai123')")
 
     while True:
-        vllm_key = input("\nEnter password: ").strip()
+        password = input("\nEnter password: ").strip()
 
-        if not vllm_key:
+        if not password:
             print("Password cannot be empty. Please try again.")
             continue
 
-        break
-
-    return runpod_key, vllm_key
+        return password
 
 
-def save_env_file(runpod_key: str, vllm_key: str):
-    """Save API keys to .env file."""
+# =============================================================================
+# CONFIGURATION PERSISTENCE
+# =============================================================================
+
+def save_env_file(runpod_key: str, vllm_key: str) -> None:
+    """
+    Save API credentials to the .env file.
+
+    Args:
+        runpod_key: The RunPod API key.
+        vllm_key: The vLLM server password.
+    """
     env_path = get_env_path()
 
     content = f"""# SolvX QuickPod Configuration
@@ -132,5 +224,5 @@ RUNPOD_API_KEY={runpod_key}
 VLLM_API_KEY={vllm_key}
 """
 
-    env_path.write_text(content)
+    env_path.write_text(content, encoding="utf-8")
     print("\nConfiguration saved!")

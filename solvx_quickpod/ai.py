@@ -1,57 +1,116 @@
 #!/usr/bin/env python3
+"""
+SolvX QuickPod - Core AI Module
 
+Main application logic for the SolvX QuickPod chat interface, including:
+- First-run onboarding orchestration
+- Pod lifecycle management (create, reconnect, terminate)
+- Interactive streaming chat with vLLM
+- Session logging and history management
+
+This module serves as the primary orchestrator, coordinating between
+the launcher, config, storage, and onboarding modules.
+"""
+
+from __future__ import annotations
+
+import importlib
+import json
 import os
 import sys
+import time
+from typing import Dict, List, Optional, Tuple
 
-# Check for first run BEFORE loading env vars
-from solvx_quickpod.onboarding import check_first_run, run_onboarding, save_env_file, get_env_path
+import httpx
+import requests
+from dotenv import load_dotenv
+from rich.console import Console
+
+# =============================================================================
+# FIRST-RUN ONBOARDING (must run before loading environment)
+# =============================================================================
+
+from solvx_quickpod.onboarding import (
+    check_first_run,
+    get_env_path,
+    run_onboarding,
+    save_env_file,
+)
 
 if check_first_run():
     runpod_key, vllm_key = run_onboarding()
     save_env_file(runpod_key, vllm_key)
     print("\nStarting SolvX QuickPod...\n")
 
-from dotenv import load_dotenv
-load_dotenv(get_env_path(), override=True)  # Load .env from ~/.myai/.env
+# Load environment after onboarding completes
+load_dotenv(get_env_path(), override=True)
 
-import time
-import json
-import requests
-import httpx
-from rich.console import Console
-import importlib
+# =============================================================================
+# MODULE IMPORTS (after environment is loaded)
+# =============================================================================
 
-from solvx_quickpod.launcher import create_pod, wait_for_running, wait_for_proxy, write_state, clear_state, is_pod_running, terminate_pod
 from solvx_quickpod import storage
+from solvx_quickpod.launcher import (
+    clear_state,
+    create_pod,
+    is_pod_running,
+    terminate_pod,
+    wait_for_running,
+    write_state,
+)
 
+# =============================================================================
+# ENVIRONMENT VALIDATION
+# =============================================================================
 
-# ==================== ENVIRONMENT CHECKS ====================
-
-RUNPOD_API_KEY = os.getenv("RUNPOD_API_KEY")
-VLLM_API_KEY = os.getenv("VLLM_API_KEY")
+RUNPOD_API_KEY: Optional[str] = os.getenv("RUNPOD_API_KEY")
+VLLM_API_KEY: Optional[str] = os.getenv("VLLM_API_KEY")
 
 if not RUNPOD_API_KEY or not VLLM_API_KEY:
-    print("[ERROR] Configuration failed. Please delete .env and try again.")
+    print("[ERROR] Configuration failed. Please delete ~/.myai/.env and try again.")
     sys.exit(1)
 
-# ==================== CONSTANTS ====================
+# =============================================================================
+# CONSTANTS
+# =============================================================================
 
-# Hardcoded configuration
-GPU_TYPE = "NVIDIA GeForce RTX 3090"
-GPU_COUNT = 1
-MODEL_ID = "TheBloke/Mistral-7B-Instruct-v0.2-AWQ"
-REFERRAL_LINK = "https://runpod.io?ref=q04x36mf"
+# GPU Configuration
+GPU_TYPE: str = "NVIDIA GeForce RTX 3090"
+GPU_COUNT: int = 1
 
-console = Console()
-MAX_TURNS = 10
-SYSTEM_PROMPT = "You are a helpful AI assistant."
-TEMPERATURE = 0.5
+# Model Configuration
+MODEL_ID: str = "TheBloke/Mistral-7B-Instruct-v0.2-AWQ"
+SYSTEM_PROMPT: str = "You are a helpful AI assistant."
+
+# Chat Configuration
+MAX_TURNS: int = 10
+TEMPERATURE: float = 0.5
+MAX_TOKENS: int = 500
+
+# Timing Configuration
+POD_CHECK_INTERVAL: int = 10  # Seconds between pod status checks
+
+# Marketing
+REFERRAL_LINK: str = "https://runpod.io?ref=q04x36mf"
+
+# Rich Console for formatted output
+console: Console = Console()
 
 
-# ==================== POD MANAGEMENT ====================
+# =============================================================================
+# POD MANAGEMENT
+# =============================================================================
 
-def check_existing_pod():
-    """Check if there's a running pod we can reconnect to."""
+def check_existing_pod() -> Optional[str]:
+    """
+    Check for an existing running pod from a previous session.
+
+    Reloads the config module to get fresh state, then verifies
+    the pod is still running via the RunPod API.
+
+    Returns:
+        Pod ID if a running pod exists, None otherwise.
+    """
     from solvx_quickpod import config
     importlib.reload(config)
 
@@ -66,8 +125,19 @@ def check_existing_pod():
     return None
 
 
-def launch_pod():
-    """Launch pod using launcher.py functions and return pod details."""
+def launch_pod() -> Tuple[str, str]:
+    """
+    Launch a new RunPod GPU pod with vLLM.
+
+    Creates the pod, waits for it to be running, and returns
+    the connection details.
+
+    Returns:
+        Tuple of (pod_id, base_url)
+
+    Raises:
+        SystemExit: If pod creation fails.
+    """
     print("\n=== Starting Pod ===")
     print(f"GPU: {GPU_TYPE}")
     print(f"Model: Mistral-7B")
@@ -81,31 +151,43 @@ def launch_pod():
     wait_for_running(pod_id)
 
     base_url = f"https://{pod_id}-8000.proxy.runpod.net"
-
     return pod_id, base_url
 
 
-def wait_for_vllm_ready(pod_id):
-    """Wait for vLLM API to be fully ready by checking /v1/models endpoint."""
+def wait_for_vllm_ready(pod_id: str) -> None:
+    """
+    Wait for the vLLM API to be fully operational.
+
+    Polls the /v1/models endpoint until it returns a successful response,
+    indicating the model is loaded and ready to serve requests.
+
+    Args:
+        pod_id: The pod identifier to check.
+
+    Raises:
+        SystemExit: If the pod terminates while waiting.
+    """
     print("Waiting for vLLM API to be ready...")
     check_count = 0
 
     while True:
         try:
-            r = requests.get(
+            response = requests.get(
                 f"https://{pod_id}-8000.proxy.runpod.net/v1/models",
                 headers={"Authorization": f"Bearer {VLLM_API_KEY}"},
-                timeout=10
+                timeout=10,
             )
-            if r.status_code == 200:
-                data = r.json()
-                models = [m.get("id") for m in data.get("data", [])]
-                print(f"vLLM API ready ✓ (models: {models})")
-                return
-        except requests.RequestException:
-            pass
 
-        # Check pod status every 10 iterations (~30 seconds)
+            if response.status_code == 200:
+                data = response.json()
+                models = [m.get("id") for m in data.get("data", [])]
+                print(f"vLLM API ready (models: {models})")
+                return
+
+        except requests.RequestException:
+            pass  # Retry on network errors
+
+        # Periodically verify pod is still running
         check_count += 1
         if check_count >= 10:
             check_count = 0
@@ -116,82 +198,107 @@ def wait_for_vllm_ready(pod_id):
         time.sleep(3)
 
 
-# ==================== CHAT FUNCTIONS ====================
+# =============================================================================
+# CHAT HISTORY MANAGEMENT
+# =============================================================================
 
-def trim_history(messages, max_turns=10):
-    """Trim history based on max_turns. None = keep all."""
+def trim_history(messages: List[Dict[str, str]], max_turns: int = 10) -> List[Dict[str, str]]:
+    """
+    Trim conversation history to maintain context window limits.
+
+    Keeps the first message (contains system prompt) plus the most recent
+    turns to stay within the model's context limits.
+
+    Args:
+        messages: The full message history.
+        max_turns: Maximum number of conversation turns to keep.
+
+    Returns:
+        Trimmed message list.
+    """
     if max_turns is None:
-        return messages  # Full history
+        return messages
 
-    # Keep first message (has system prompt) + last N turns
+    # Calculate max messages: first message + (max_turns * 2 for user/assistant pairs)
     max_messages = 1 + max_turns * 2
+
     if len(messages) > max_messages:
         return [messages[0]] + messages[-(max_messages - 1):]
+
     return messages
 
 
-def run_chat(pod_id):
-    """Run the interactive chat interface with streaming responses."""
+# =============================================================================
+# INTERACTIVE CHAT
+# =============================================================================
+
+def run_chat(pod_id: str) -> None:
+    """
+    Run the interactive chat interface.
+
+    Handles user input, streams responses from vLLM, and manages
+    the conversation history. Supports commands for debugging and control.
+
+    Available commands:
+        /json  - Toggle JSON request/response display
+        /stop  - Terminate pod and exit
+        /help  - Show available commands
+
+    Args:
+        pod_id: The active pod identifier.
+    """
     from solvx_quickpod import config
     importlib.reload(config)
 
-    # Initialize storage session
+    # Initialize session
     session_id = storage.new_session()
     storage.touch_user()
 
-    # Mistral doesn't support system role - we'll prepend to first user message
-    messages = []
+    # Conversation state
+    # Note: Mistral doesn't support system role, so we prepend to first user message
+    messages: List[Dict[str, str]] = []
     first_message = True
     show_json = False
 
-    # Pod check timing
+    # Pod health monitoring
     last_pod_check = time.time()
-    POD_CHECK_INTERVAL = 10  # seconds
 
+    # Display session info
     console.print(f"[dim]Temperature: {TEMPERATURE}[/dim]")
     console.print(f"[dim]History: Last {MAX_TURNS} turns[/dim]\n")
     console.print("[bold]Chat started. Commands: /json, /stop, /help. Ctrl+C to exit.[/bold]\n")
 
     while True:
         try:
-            # Check pod status periodically
+            # Periodic pod health check
             if time.time() - last_pod_check > POD_CHECK_INTERVAL:
                 if not is_pod_running(pod_id):
                     console.print("\n[dim]Pod terminated. Exiting.[/dim]")
                     sys.exit(0)
                 last_pod_check = time.time()
 
+            # Get user input
             user_input = console.input("[bold cyan]You > [/bold cyan]").strip()
             if not user_input:
                 continue
 
-            # Show command help
+            # Handle commands
             if user_input.lower() == "/help":
-                console.print("[dim]Available commands:[/dim]")
-                console.print("[dim]  /stop - Terminate pod and exit[/dim]")
-                console.print("[dim]  /json - Toggle JSON request/response display[/dim]")
-                console.print("[dim]  /help - Show this help[/dim]\n")
+                _show_help()
                 continue
 
-            # Toggle JSON display
             if user_input.lower() == "/json":
                 show_json = not show_json
-                status = "ON" if show_json else "OFF"
-                console.print(f"[dim]JSON display: {status}[/dim]\n")
+                console.print(f"[dim]JSON display: {'ON' if show_json else 'OFF'}[/dim]\n")
                 continue
 
-            # Handle /stop command
             if user_input.lower() == "/stop":
-                confirm = input("Terminate pod? This will stop billing. (y/n): ").strip().lower()
-                if confirm == 'y':
-                    if terminate_pod(pod_id):
-                        console.print("[bold]Pod terminated.[/bold]")
-                        sys.exit(0)
-                    else:
-                        console.print("[red]Failed to terminate pod.[/red]")
+                if _confirm_stop(pod_id):
+                    return
                 continue
 
-            # Prepend system prompt to first message (Mistral doesn't support system role)
+            # Prepare message content
+            # Mistral requires alternating user/assistant roles, no system role
             if first_message:
                 user_content = f"{SYSTEM_PROMPT}\n\n{user_input}"
                 first_message = False
@@ -202,79 +309,16 @@ def run_chat(pod_id):
             storage.log_message(session_id, "user", user_input)
             messages = trim_history(messages, MAX_TURNS)
 
-            # Start timing from prompt send
-            request_start = time.time()
+            # Send request and stream response
+            assistant_text = _stream_response(
+                config=config,
+                messages=messages,
+                show_json=show_json,
+            )
 
-            payload = {
-                "model": config.MODEL,
-                "messages": messages,
-                "temperature": TEMPERATURE,
-                "max_tokens": 500,
-                "stream": True,
-            }
-
-            headers = {
-                "Authorization": f"Bearer {config.API_KEY}",
-                "Content-Type": "application/json",
-            }
-
-            if show_json:
-                console.print("\n[dim]>>> REQUEST:[/dim]")
-                console.print(f"[dim]{json.dumps(payload, indent=2)}[/dim]\n")
-
-            console.print("\n[bold green]AI >[/bold green] ", end="")
-            assistant_text = ""
-
-            with httpx.Client(timeout=None) as client:
-                with client.stream(
-                    "POST",
-                    config.LLM_BASE_URL.rstrip("/") + "/v1/chat/completions",
-                    headers=headers,
-                    json=payload,
-                ) as response:
-
-                    if response.status_code != 200:
-                        error_text = response.read().decode()
-                        console.print(
-                            f"\n[bold red]HTTP {response.status_code}:[/bold red] {error_text}"
-                        )
-                        continue
-
-                    for line in response.iter_lines():
-                        if not line:
-                            continue
-
-                        if not line.startswith("data: "):
-                            continue
-
-                        data = line[6:]
-                        if data == "[DONE]":
-                            break
-
-                        try:
-                            chunk = json.loads(data)
-                            delta = chunk["choices"][0]["delta"]
-                            if "content" in delta:
-                                token = delta["content"]
-                                assistant_text += token
-                                console.print(token, end="", soft_wrap=True)
-                        except Exception:
-                            continue
-
-            elapsed = time.time() - request_start
-            console.print(f"\n[dim]({elapsed:.1f}s)[/dim]")
-
-            if show_json and assistant_text:
-                response_json = {"role": "assistant", "content": assistant_text}
-                console.print(f"\n[dim]<<< RESPONSE:[/dim]")
-                console.print(f"[dim]{json.dumps(response_json, indent=2)}[/dim]")
-
-            console.print()
-
+            # Save assistant response
             if assistant_text:
-                messages.append(
-                    {"role": "assistant", "content": assistant_text}
-                )
+                messages.append({"role": "assistant", "content": assistant_text})
                 storage.log_message(session_id, "assistant", assistant_text)
                 messages = trim_history(messages, MAX_TURNS)
 
@@ -283,57 +327,178 @@ def run_chat(pod_id):
             sys.exit(0)
 
         except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError) as e:
-            # Connection error - check if pod is still running
             if not is_pod_running(pod_id):
                 console.print("\n[dim]Pod terminated. Exiting.[/dim]")
                 sys.exit(0)
-            else:
-                console.print(f"\n[bold red]Connection error:[/bold red] {e}")
-                continue
+            console.print(f"\n[bold red]Connection error:[/bold red] {e}")
 
 
-# ==================== MAIN ORCHESTRATION ====================
+def _show_help() -> None:
+    """Display available chat commands."""
+    console.print("[dim]Available commands:[/dim]")
+    console.print("[dim]  /json - Toggle JSON request/response display[/dim]")
+    console.print("[dim]  /stop - Terminate pod and exit[/dim]")
+    console.print("[dim]  /help - Show this help[/dim]\n")
 
-def main():
-    """Main function orchestrating the complete user flow."""
+
+def _confirm_stop(pod_id: str) -> bool:
+    """
+    Prompt for confirmation and terminate the pod.
+
+    Args:
+        pod_id: The pod to terminate.
+
+    Returns:
+        True if pod was terminated, False if cancelled.
+    """
+    confirm = input("Terminate pod? This will stop billing. (y/n): ").strip().lower()
+
+    if confirm == "y":
+        if terminate_pod(pod_id):
+            console.print("[bold]Pod terminated.[/bold]")
+            sys.exit(0)
+        else:
+            console.print("[red]Failed to terminate pod.[/red]")
+
+    return False
+
+
+def _stream_response(config, messages: List[Dict[str, str]], show_json: bool) -> str:
+    """
+    Send a chat request and stream the response.
+
+    Args:
+        config: The config module (reloaded for fresh state).
+        messages: The conversation history.
+        show_json: Whether to display JSON debug output.
+
+    Returns:
+        The complete assistant response text.
+    """
+    request_start = time.time()
+
+    payload = {
+        "model": config.MODEL,
+        "messages": messages,
+        "temperature": TEMPERATURE,
+        "max_tokens": MAX_TOKENS,
+        "stream": True,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {config.API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    # Debug: show request JSON
+    if show_json:
+        console.print("\n[dim]>>> REQUEST:[/dim]")
+        console.print(f"[dim]{json.dumps(payload, indent=2)}[/dim]\n")
+
+    console.print("\n[bold green]AI >[/bold green] ", end="")
+    assistant_text = ""
+
+    with httpx.Client(timeout=None) as client:
+        with client.stream(
+            "POST",
+            config.LLM_BASE_URL.rstrip("/") + "/v1/chat/completions",
+            headers=headers,
+            json=payload,
+        ) as response:
+
+            if response.status_code != 200:
+                error_text = response.read().decode()
+                console.print(f"\n[bold red]HTTP {response.status_code}:[/bold red] {error_text}")
+                return ""
+
+            # Stream response tokens
+            for line in response.iter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+
+                data = line[6:]
+                if data == "[DONE]":
+                    break
+
+                try:
+                    chunk = json.loads(data)
+                    delta = chunk["choices"][0]["delta"]
+                    if "content" in delta:
+                        token = delta["content"]
+                        assistant_text += token
+                        console.print(token, end="", soft_wrap=True)
+                except (json.JSONDecodeError, KeyError, IndexError):
+                    continue
+
+    # Display timing
+    elapsed = time.time() - request_start
+    console.print(f"\n[dim]({elapsed:.1f}s)[/dim]")
+
+    # Debug: show response JSON
+    if show_json and assistant_text:
+        console.print("\n[dim]<<< RESPONSE:[/dim]")
+        console.print(f"[dim]{json.dumps({'role': 'assistant', 'content': assistant_text}, indent=2)}[/dim]")
+
+    console.print()
+    return assistant_text
+
+
+# =============================================================================
+# MAIN ENTRY POINT
+# =============================================================================
+
+def main() -> None:
+    """
+    Main application entry point.
+
+    Orchestrates the complete user flow:
+    1. Display welcome message
+    2. Check for existing running pod (offer reconnection)
+    3. Launch new pod if needed
+    4. Wait for vLLM to be ready
+    5. Start interactive chat session
+    """
     try:
-        # Welcome message with referral
-        print("\n=== SolvX QuickPod ===")
-        print(f"Don't have RunPod? Get $5 free credit: {REFERRAL_LINK}\n")
+        # Welcome
+        print("\n=== SolvX QuickPod ===\n")
 
-        # Step 1: Check for existing running pod
+        # Check for existing pod
         existing_pod_id = check_existing_pod()
+
         if existing_pod_id:
             print(f"=== Existing Pod Found ===")
             print(f"Pod ID: {existing_pod_id}")
 
             while True:
                 choice = input("\nReconnect to this pod? (y/n): ").strip().lower()
-                if choice == 'y':
+
+                if choice == "y":
                     print("\nReconnecting...")
                     wait_for_vllm_ready(existing_pod_id)
                     print("\n=== Reconnected ===\n")
                     run_chat(existing_pod_id)
                     return
-                elif choice == 'n':
+
+                if choice == "n":
                     print("\nStarting new pod instead...")
                     break
-                else:
-                    print("Please enter 'y' or 'n'")
 
-        # Step 2: Launch Pod (no menus, just launch)
-        pod_id, base_url = launch_pod()
+                print("Please enter 'y' or 'n'")
 
-        # Step 3: Wait for vLLM API to be fully ready
+        # Launch new pod
+        pod_id, _base_url = launch_pod()
+
+        # Wait for vLLM to be ready
         wait_for_vllm_ready(pod_id)
 
-        # Step 4: Start chat
+        # Start chat
         print("\n=== Pod Ready ===\n")
         run_chat(pod_id)
 
     except KeyboardInterrupt:
         print("\n\nInterrupted by user")
         sys.exit(1)
+
     except Exception as e:
         print(f"\n[ERROR] {e}")
         sys.exit(1)

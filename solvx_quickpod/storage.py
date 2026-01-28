@@ -1,53 +1,95 @@
+#!/usr/bin/env python3
 """
-Local storage module for chat transcripts and user profiles.
+SolvX QuickPod - Storage Module
 
-Saves chat logs to ~/.myai/chat_logs/{session_uuid}.jsonl
-Each message is written with open/write/flush/close (no held handles).
+Handles local persistence for chat transcripts and user profiles.
+
+Storage locations:
+    ~/.myai/chat_logs/{session_uuid}.jsonl  - Chat session logs
+    ~/.myai/user.json                       - User profile data
+
+File handling:
+    All writes use open/write/flush/close pattern to ensure data integrity.
+    No file handles are held between operations.
 """
 
-import uuid
+from __future__ import annotations
+
 import json
-from pathlib import Path
+import uuid
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict
 
-STORAGE_DIR = Path.home() / ".myai"
-CHAT_LOGS_DIR = STORAGE_DIR / "chat_logs"
-USER_FILE = STORAGE_DIR / "user.json"
+# =============================================================================
+# STORAGE PATHS
+# =============================================================================
 
+STORAGE_DIR: Path = Path.home() / ".myai"
+CHAT_LOGS_DIR: Path = STORAGE_DIR / "chat_logs"
+USER_FILE: Path = STORAGE_DIR / "user.json"
+
+
+# =============================================================================
+# SESSION MANAGEMENT
+# =============================================================================
 
 def new_session() -> str:
-    """Generate UUID for new session."""
+    """
+    Generate a unique session identifier.
+
+    Returns:
+        A UUID string for the new chat session.
+    """
     return str(uuid.uuid4())
 
 
-def log_message(session_id: str, role: str, content: str):
-    """
-    Append message to session JSONL file.
+# =============================================================================
+# CHAT LOGGING
+# =============================================================================
 
-    Opens, writes, flushes, and closes file each call.
-    No file handles are held between calls.
+def log_message(session_id: str, role: str, content: str) -> None:
+    """
+    Append a message to the session's chat log.
+
+    Each message is stored as a JSON line with timestamp, role, and content.
+    The file is opened, written, flushed, and closed on each call to ensure
+    data persistence without holding file handles.
+
+    Args:
+        session_id: The UUID of the current chat session.
+        role: The message sender role ('user', 'assistant', or 'system').
+        content: The message content.
     """
     CHAT_LOGS_DIR.mkdir(parents=True, exist_ok=True)
     filepath = CHAT_LOGS_DIR / f"{session_id}.jsonl"
 
     entry = {
-        "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "ts": _utc_timestamp(),
         "role": role,
-        "content": content
+        "content": content,
     }
 
     with open(filepath, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
         f.flush()
-    # File closed on exit - no held handles
 
 
-def get_or_create_user() -> dict:
+# =============================================================================
+# USER PROFILE
+# =============================================================================
+
+def get_or_create_user() -> Dict[str, str]:
     """
-    Read or create user profile at ~/.myai/user.json
+    Retrieve or create the user profile.
 
-    Returns dict with user_id, created_at, last_seen.
-    Updates last_seen on each call.
+    The profile is stored at ~/.myai/user.json and contains:
+        - user_id: User identifier (default: "default")
+        - created_at: Profile creation timestamp
+        - last_seen: Most recent activity timestamp (updated on each call)
+
+    Returns:
+        Dictionary containing user profile data.
     """
     STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -57,11 +99,11 @@ def get_or_create_user() -> dict:
     else:
         user = {
             "user_id": "default",
-            "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            "created_at": _utc_timestamp(),
         }
 
-    # Update last_seen
-    user["last_seen"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    # Update last seen timestamp
+    user["last_seen"] = _utc_timestamp()
 
     with open(USER_FILE, "w", encoding="utf-8") as f:
         json.dump(user, f, indent=2)
@@ -70,6 +112,24 @@ def get_or_create_user() -> dict:
     return user
 
 
-def touch_user():
-    """Update user's last_seen timestamp."""
-    get_or_create_user()  # This already updates last_seen
+def touch_user() -> None:
+    """
+    Update the user's last_seen timestamp.
+
+    Convenience wrapper around get_or_create_user() for activity tracking.
+    """
+    get_or_create_user()
+
+
+# =============================================================================
+# UTILITIES
+# =============================================================================
+
+def _utc_timestamp() -> str:
+    """
+    Generate an ISO 8601 UTC timestamp.
+
+    Returns:
+        Timestamp string in format: 2024-01-15T10:30:00Z
+    """
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
