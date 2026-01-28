@@ -32,14 +32,18 @@ console = Console()
 # =============================================================================
 
 # Typing speed (characters per second)
-TYPING_SPEED = 30
-TYPING_SPEED_FAST = 150
+TYPING_SPEED = 12  # Slow, readable typing for user input
+TYPING_SPEED_FAST = 100  # For --fast mode only
+
+# AI response speed (words per second) - slower than typing
+AI_RESPONSE_SPEED = 8  # Deliberate, readable pace
 
 # Delays between actions (seconds)
-DELAY_AFTER_PROMPT = 0.3
-DELAY_AFTER_RESPONSE = 2.0
-DELAY_BETWEEN_SECTIONS = 1.5
-DELAY_FOR_DRAMATIC_EFFECT = 3.0
+DELAY_AFTER_USER_INPUT = 1.5  # Pause after user types, before AI responds
+DELAY_AFTER_AI_RESPONSE = 4.0  # Long pause to read the response
+DELAY_AFTER_JSON_BLOCK = 5.0  # Extra time to examine JSON
+DELAY_AFTER_JSON_TOGGLE = 3.0  # Pause after /json mode enabled
+DELAY_BETWEEN_EXCHANGES = 2.0  # Pause before next exchange starts
 
 # Simulated response times (seconds) - realistic for cloud GPU
 RESPONSE_TIMES = [1.8, 2.1, 1.4, 2.7]
@@ -91,14 +95,14 @@ def type_text(text: str, speed: int = TYPING_SPEED) -> None:
     print()
 
 
-def stream_response(text: str, speed: int = 60) -> None:
+def stream_response(text: str, words_per_second: int = 8) -> None:
     """Simulate streaming response from AI with word-by-word display."""
     words = text.split(" ")
     for i, word in enumerate(words):
         if i > 0:
             console.print(" ", end="")
         console.print(word, end="", highlight=False, soft_wrap=True)
-        time.sleep(1 / speed)
+        time.sleep(1.0 / words_per_second)
     print()
 
 
@@ -171,18 +175,19 @@ def show_welcome() -> None:
 def run_demo(fast: bool = False, no_typing: bool = False) -> None:
     """Run the demo showcasing /json mode."""
     typing_speed = TYPING_SPEED_FAST if fast else TYPING_SPEED
-    response_speed = 150 if fast else 60
+    response_speed = 100 if fast else AI_RESPONSE_SPEED
 
     if no_typing:
         typing_speed = 10000
         response_speed = 10000
 
     show_welcome()
+    time.sleep(2.0 if not fast else 0.3)
 
     # Simulate app header with version
     console.print("[bold]=== SolvX QuickPod v1.0.0 ===[/bold]")
     console.print()
-    time.sleep(DELAY_BETWEEN_SECTIONS if not fast else 0.3)
+    time.sleep(1.0 if not fast else 0.3)
 
     # Session info with cost
     console.print("[dim]GPU: RTX 3090 (~$0.44/hour) | Model: Mistral-7B[/dim]")
@@ -191,7 +196,7 @@ def run_demo(fast: bool = False, no_typing: bool = False) -> None:
     console.print("[bold]Chat started. Commands: /json, /stop, /help. Ctrl+C to exit.[/bold]")
     console.print()
 
-    time.sleep(DELAY_BETWEEN_SECTIONS if not fast else 0.3)
+    time.sleep(2.0 if not fast else 0.3)
 
     # Track conversation for JSON display
     messages: List[Dict[str, str]] = []
@@ -202,13 +207,13 @@ def run_demo(fast: bool = False, no_typing: bool = False) -> None:
         if "command" in exchange:
             console.print("[bold white on blue] YOU [/bold white on blue] ", end="")
             type_text(exchange["command"], typing_speed)
-            time.sleep(0.3 if not fast else 0.1)
+            time.sleep(1.0 if not fast else 0.1)
             # Highlight the JSON toggle prominently
             console.print()
             console.print("[bold yellow on black] ** JSON DEBUG MODE: ON ** [/bold yellow on black]")
             console.print("[yellow]You will now see raw API requests and responses![/yellow]")
             console.print()
-            time.sleep(DELAY_BETWEEN_SECTIONS if not fast else 0.3)
+            time.sleep(DELAY_AFTER_JSON_TOGGLE if not fast else 0.3)
             continue
 
         user_msg = exchange["user"]
@@ -224,6 +229,7 @@ def run_demo(fast: bool = False, no_typing: bool = False) -> None:
         # Visual separator for new exchange
         console.print("[dim]" + "-" * 60 + "[/dim]")
         console.print()
+        time.sleep(DELAY_BETWEEN_EXCHANGES if not fast else 0.2)
 
         # User input with prominent styling
         console.print("[bold white on blue] YOU [/bold white on blue] ", end="")
@@ -232,34 +238,41 @@ def run_demo(fast: bool = False, no_typing: bool = False) -> None:
         # Add to messages
         messages.append({"role": "user", "content": user_content})
 
-        time.sleep(DELAY_AFTER_PROMPT if not fast else 0.1)
+        # Pause after user input before showing JSON or AI response
+        time.sleep(DELAY_AFTER_USER_INPUT if not fast else 0.1)
 
         # Show JSON request if enabled
         if show_json:
             payload = build_request_json(messages)
             show_json_request(payload)
-            time.sleep(DELAY_FOR_DRAMATIC_EFFECT if not fast else 0.5)
+            # Long pause to let viewer examine the JSON
+            time.sleep(DELAY_AFTER_JSON_BLOCK if not fast else 0.5)
 
         # AI response with prominent styling
         console.print()
         console.print("[bold white on green] AI [/bold white on green] ", end="")
+        # Brief pause to simulate AI "thinking"
+        time.sleep(0.8 if not fast else 0.1)
         stream_response(assistant_msg, response_speed)
 
         # Show response time with emphasis
         response_time = RESPONSE_TIMES[response_idx % len(RESPONSE_TIMES)]
         show_response_time(response_time)
 
+        # Pause to read AI response
+        time.sleep(DELAY_AFTER_AI_RESPONSE if not fast else 0.3)
+
         # Show JSON response if enabled
         if show_json:
             show_json_response(assistant_msg)
+            # Pause to examine JSON response
+            time.sleep(DELAY_AFTER_JSON_BLOCK if not fast else 0.3)
 
         console.print()
 
         # Add assistant response to history
         messages.append({"role": "assistant", "content": assistant_msg})
         response_idx += 1
-
-        time.sleep(DELAY_AFTER_RESPONSE if not fast else 0.3)
 
     # End demo with summary
     console.print()
