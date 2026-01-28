@@ -333,7 +333,7 @@ def run_chat(pod_id: str) -> None:
                 messages = trim_history(messages, MAX_TURNS)
 
         except KeyboardInterrupt:
-            console.print("\n[bold]Session ended.[/bold]")
+            _handle_exit(pod_id)
             sys.exit(0)
 
         except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError) as e:
@@ -371,12 +371,56 @@ def _confirm_stop(pod_id: str) -> bool:
 
     if confirm == "y":
         if terminate_pod(pod_id):
+            clear_state()
             console.print("[bold]Pod terminated.[/bold]")
             sys.exit(0)
         else:
             console.print("[red]Failed to terminate pod.[/red]")
 
     return False
+
+
+def _handle_exit(pod_id: str) -> None:
+    """
+    Handle application exit - prompt to terminate running pod.
+
+    Checks if the pod is still running and offers to terminate it
+    to prevent unexpected billing charges.
+
+    Args:
+        pod_id: The pod identifier to check/terminate.
+    """
+    console.print("\n")
+
+    # Verify pod is actually still running via API
+    if not is_pod_running(pod_id):
+        console.print("[dim]Pod already stopped.[/dim]")
+        clear_state()
+        return
+
+    # Pod is running - warn user and offer to terminate
+    console.print(f"[yellow]Warning: Your GPU pod is still running![/yellow]")
+    console.print(f"[yellow]It will continue billing at ~${GPU_COST_PER_HOUR:.2f}/hour until stopped.[/yellow]\n")
+
+    try:
+        choice = input("Terminate pod now? (y/n): ").strip().lower()
+
+        if choice == "y":
+            console.print("[dim]Terminating pod...[/dim]")
+            if terminate_pod(pod_id):
+                clear_state()
+                console.print("[bold green]Pod terminated. Billing stopped.[/bold green]")
+            else:
+                console.print("[red]Failed to terminate pod automatically.[/red]")
+                console.print("[yellow]Please terminate manually at: https://www.runpod.io/console/pods[/yellow]")
+        else:
+            console.print("[dim]Pod left running. Use /stop next time or terminate at:[/dim]")
+            console.print("[dim]https://www.runpod.io/console/pods[/dim]")
+
+    except (KeyboardInterrupt, EOFError):
+        # User pressed Ctrl+C again - leave pod running
+        console.print("\n[dim]Exiting. Pod left running.[/dim]")
+        console.print("[dim]Terminate at: https://www.runpod.io/console/pods[/dim]")
 
 
 def _stream_response(config, messages: List[Dict[str, str]], show_json: bool) -> str:
@@ -522,7 +566,12 @@ def main() -> None:
         run_chat(pod_id)
 
     except KeyboardInterrupt:
-        print("\n\nInterrupted by user")
+        # Check if we have a pod running that needs cleanup
+        existing_pod = check_existing_pod()
+        if existing_pod:
+            _handle_exit(existing_pod)
+        else:
+            print("\n\nInterrupted by user")
         sys.exit(1)
 
     except Exception as e:
