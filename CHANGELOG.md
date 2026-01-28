@@ -5,6 +5,19 @@ All notable changes to SolvX QuickPod will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- (Add new features here)
+
+### Changed
+- (Add changes here)
+
+### Fixed
+- (Add fixes here)
+
+---
+
 ## [1.0.0] - 2026-01-28
 
 ### Added
@@ -15,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Session history persistence (~/.myai/chat_logs/)
 - Pod reconnection support for existing sessions
 - Debug mode (`/json`) to view raw API exchanges
+- Exit protection - prompts to terminate pod on Ctrl+C to prevent surprise charges
+- Cost transparency - displays hourly rate at session start
 - Desktop shortcut creation (Windows)
 - Multi-platform builds (Windows, Linux, macOS)
 
@@ -24,4 +39,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenAI-compatible API endpoint
 - Conversation history trimming (last 10 turns)
 
-[1.0.0]: https://github.com/tradewithmeai/runpod-app/releases/tag/v1.0.0
+[Unreleased]: https://github.com/tradewithmeai/solvx-quickpod/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/tradewithmeai/solvx-quickpod/releases/tag/v1.0.0
