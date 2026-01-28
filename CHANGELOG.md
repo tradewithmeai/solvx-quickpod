@@ -29,9 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pod reconnection support for existing sessions
 - Debug mode (`/json`) to view raw API exchanges
 - Exit protection - prompts to terminate pod on Ctrl+C to prevent surprise charges
+- Emergency pod termination - automatically stops pod if terminal window is closed
 - Cost transparency - displays hourly rate at session start
 - Desktop shortcut creation (Windows)
 - Multi-platform builds (Windows, Linux, macOS)
+- Friendly onboarding - helpful guidance if API key not copied, keyboard-mash connection key
 
 ### Technical
 - vLLM server with AWQ quantization for efficient inference
