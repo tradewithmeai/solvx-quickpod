@@ -107,12 +107,15 @@ def show_response_time(seconds: float) -> None:
     # Color based on speed
     if seconds < 2.0:
         color = "green"
+        label = "FAST"
     elif seconds < 3.0:
         color = "yellow"
+        label = "OK"
     else:
         color = "red"
+        label = "SLOW"
 
-    console.print(f"[bold {color}]({seconds:.1f}s)[/bold {color}]")
+    console.print(f"[bold {color} on black] {label}: {seconds:.1f}s [/bold {color} on black]")
 
 
 def build_request_json(messages: List[Dict[str, str]]) -> Dict[str, Any]:
@@ -128,20 +131,24 @@ def build_request_json(messages: List[Dict[str, str]]) -> Dict[str, Any]:
 
 def show_json_request(payload: Dict[str, Any]) -> None:
     """Display the JSON request with syntax highlighting."""
-    console.print("\n[dim]>>> REQUEST:[/dim]")
+    console.print()
+    console.print("[bold magenta on black] >>> API REQUEST >>> [/bold magenta on black]")
+    console.print()
     json_str = json.dumps(payload, indent=2)
-    syntax = Syntax(json_str, "json", theme="monokai", line_numbers=False)
-    console.print(syntax)
+    syntax = Syntax(json_str, "json", theme="monokai", line_numbers=False, background_color="default")
+    console.print(Panel(syntax, border_style="magenta", padding=(0, 1)))
     console.print()
 
 
 def show_json_response(content: str) -> None:
     """Display the JSON response with syntax highlighting."""
     response = {"role": "assistant", "content": content}
-    console.print("\n[dim]<<< RESPONSE:[/dim]")
+    console.print()
+    console.print("[bold blue on black] <<< API RESPONSE <<< [/bold blue on black]")
+    console.print()
     json_str = json.dumps(response, indent=2)
-    syntax = Syntax(json_str, "json", theme="monokai", line_numbers=False)
-    console.print(syntax)
+    syntax = Syntax(json_str, "json", theme="monokai", line_numbers=False, background_color="default")
+    console.print(Panel(syntax, border_style="blue", padding=(0, 1)))
 
 
 def show_welcome() -> None:
@@ -193,10 +200,13 @@ def run_demo(fast: bool = False, no_typing: bool = False) -> None:
     for exchange in DEMO_EXCHANGES:
         # Handle /json command
         if "command" in exchange:
-            console.print("[bold cyan]You > [/bold cyan]", end="")
+            console.print("[bold white on blue] YOU [/bold white on blue] ", end="")
             type_text(exchange["command"], typing_speed)
             time.sleep(0.3 if not fast else 0.1)
-            console.print(f"[dim]{exchange['output']}[/dim]")
+            # Highlight the JSON toggle prominently
+            console.print()
+            console.print("[bold yellow on black] ** JSON DEBUG MODE: ON ** [/bold yellow on black]")
+            console.print("[yellow]You will now see raw API requests and responses![/yellow]")
             console.print()
             time.sleep(DELAY_BETWEEN_SECTIONS if not fast else 0.3)
             continue
@@ -211,8 +221,12 @@ def run_demo(fast: bool = False, no_typing: bool = False) -> None:
         else:
             user_content = user_msg
 
-        # User input
-        console.print("[bold cyan]You > [/bold cyan]", end="")
+        # Visual separator for new exchange
+        console.print("[dim]" + "-" * 60 + "[/dim]")
+        console.print()
+
+        # User input with prominent styling
+        console.print("[bold white on blue] YOU [/bold white on blue] ", end="")
         type_text(user_msg, typing_speed)  # Show original, not with system prompt
 
         # Add to messages
@@ -226,9 +240,9 @@ def run_demo(fast: bool = False, no_typing: bool = False) -> None:
             show_json_request(payload)
             time.sleep(DELAY_FOR_DRAMATIC_EFFECT if not fast else 0.5)
 
-        # AI response
+        # AI response with prominent styling
         console.print()
-        console.print("[bold green]AI >[/bold green] ", end="")
+        console.print("[bold white on green] AI [/bold white on green] ", end="")
         stream_response(assistant_msg, response_speed)
 
         # Show response time with emphasis
