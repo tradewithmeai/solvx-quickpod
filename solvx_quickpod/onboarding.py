@@ -160,6 +160,33 @@ def _handle_api_key_instructions() -> None:
     if response == "y":
         webbrowser.open(SETTINGS_URL)
         print("Settings page opened.")
+    else:
+        # Check if user might already have an API key configured
+        env_path = get_env_path()
+        has_existing_key = False
+
+        if env_path.exists():
+            try:
+                content = env_path.read_text(encoding="utf-8")
+                for line in content.splitlines():
+                    if line.strip().startswith("RUNPOD_API_KEY="):
+                        value = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        if value and not value.startswith("your_"):
+                            has_existing_key = True
+                            break
+            except Exception:
+                pass
+
+        if not has_existing_key:
+            print("\n" + "-" * 50)
+            print("No worries! If you already created an API key but didn't")
+            print("copy it, the key won't be shown again on the site.")
+            print("\nTo create a new one:")
+            print("  1. Visit: https://www.runpod.io/console/user/settings")
+            print("  2. Scroll down to the 'API Keys' section")
+            print("  3. Click 'Create API Key'")
+            print("  4. Copy the new key")
+            input("\nPress Enter when you have your API key ready...")
 
 
 def _get_api_key() -> str:
@@ -193,14 +220,21 @@ def _get_password() -> str:
         The password string.
     """
     print("\n" + "-" * 50)
-    print("Create a password for your AI server.")
-    print("(Tip: Use something memorable, like 'myai123')")
+    print("Create a connection key for your AI server.")
+    print("\nThis is just to secure your connection to the server -")
+    print("it's stored locally and you won't need to remember it.")
+    print("\nFeel free to mash your keyboard to create a random string!")
+    print("(Example: kj3h4kj5h4 or anything you like)")
 
     while True:
-        password = input("\nEnter password: ").strip()
+        password = input("\nEnter connection key: ").strip()
 
         if not password:
-            print("Password cannot be empty. Please try again.")
+            print("Connection key cannot be empty. Please try again.")
+            continue
+
+        if len(password) < 4:
+            print("Please enter at least 4 characters.")
             continue
 
         return password

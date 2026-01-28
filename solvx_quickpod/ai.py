@@ -14,9 +14,11 @@ the launcher, config, storage, and onboarding modules.
 
 from __future__ import annotations
 
+import atexit
 import importlib
 import json
 import os
+import signal
 import sys
 import time
 from typing import Dict, List, Optional, Tuple
@@ -96,6 +98,62 @@ REFERRAL_LINK: str = "https://runpod.io?ref=q04x36mf"
 
 # Rich Console for formatted output
 console: Console = Console()
+
+# Global state for emergency cleanup
+_active_pod_id: Optional[str] = None
+
+
+# =============================================================================
+# EMERGENCY POD TERMINATION (handles terminal close)
+# =============================================================================
+
+def _emergency_terminate() -> None:
+    """
+    Emergency pod termination when app is forcibly closed.
+
+    Called by atexit and signal handlers when the terminal window is closed
+    or the process receives a termination signal. Silently terminates any
+    running pod to prevent unexpected billing charges.
+    """
+    global _active_pod_id
+
+    if _active_pod_id:
+        try:
+            # Silent termination - no user interaction possible
+            terminate_pod(_active_pod_id)
+            clear_state()
+        except Exception:
+            pass  # Best effort - can't do much if this fails
+
+
+def _signal_handler(signum, frame) -> None:
+    """Handle termination signals by cleaning up and exiting."""
+    _emergency_terminate()
+    sys.exit(0)
+
+
+def _setup_emergency_handlers() -> None:
+    """
+    Register handlers for emergency pod termination.
+
+    Sets up atexit and signal handlers to ensure pods are terminated
+    when the application exits unexpectedly (terminal close, etc).
+    """
+    # Register atexit handler for normal exits
+    atexit.register(_emergency_terminate)
+
+    # Register signal handlers for terminal close events
+    if sys.platform == "win32":
+        # Windows: SIGBREAK is sent when console window is closed
+        signal.signal(signal.SIGBREAK, _signal_handler)
+    else:
+        # Unix: SIGTERM is sent when terminal is closed, SIGHUP for hangup
+        signal.signal(signal.SIGTERM, _signal_handler)
+        signal.signal(signal.SIGHUP, _signal_handler)
+
+
+# Initialize emergency handlers at module load
+_setup_emergency_handlers()
 
 
 # =============================================================================
@@ -370,7 +428,9 @@ def _confirm_stop(pod_id: str) -> bool:
     confirm = input("Terminate pod? This will stop billing. (y/n): ").strip().lower()
 
     if confirm == "y":
+        global _active_pod_id
         if terminate_pod(pod_id):
+            _active_pod_id = None  # Clear so atexit doesn't double-terminate
             clear_state()
             console.print("[bold]Pod terminated.[/bold]")
             sys.exit(0)
@@ -406,8 +466,10 @@ def _handle_exit(pod_id: str) -> None:
         choice = input("Terminate pod now? (y/n): ").strip().lower()
 
         if choice == "y":
+            global _active_pod_id
             console.print("[dim]Terminating pod...[/dim]")
             if terminate_pod(pod_id):
+                _active_pod_id = None  # Clear so atexit doesn't double-terminate
                 clear_state()
                 console.print("[bold green]Pod terminated. Billing stopped.[/bold green]")
             else:
@@ -525,6 +587,8 @@ def main() -> None:
     4. Wait for vLLM to be ready
     5. Start interactive chat session
     """
+    global _active_pod_id
+
     try:
         # Welcome with version
         from solvx_quickpod import __version__
@@ -542,6 +606,7 @@ def main() -> None:
                 choice = input("\nReconnect to this pod? (y/n): ").strip().lower()
 
                 if choice == "y":
+                    _active_pod_id = existing_pod_id
                     print("\nReconnecting...")
                     wait_for_vllm_ready(existing_pod_id)
                     print("\n=== Reconnected ===\n")
@@ -557,6 +622,7 @@ def main() -> None:
 
         # Launch new pod
         pod_id, _base_url = launch_pod()
+        _active_pod_id = pod_id
 
         # Wait for vLLM to be ready
         wait_for_vllm_ready(pod_id)
