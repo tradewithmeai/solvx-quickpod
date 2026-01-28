@@ -66,18 +66,25 @@ def create_icons(master_path: str, output_dir: str = "icons") -> None:
         resized.save(output_file, "PNG")
         print(f"  {filename:20} ({size}x{size})")
 
-    # Create ICO file with multiple sizes
-    ico_sizes = [(16, 16), (32, 32), (48, 48), (256, 256)]
-    ico_images = [master.resize(size, Image.Resampling.LANCZOS) for size in ico_sizes]
+    # Create ICO file with multiple sizes (largest first for best quality)
+    ico_sizes = [256, 128, 64, 48, 32, 16]
+    ico_images = []
+
+    for size in ico_sizes:
+        img = master.resize((size, size), Image.Resampling.LANCZOS)
+        # Ensure RGBA mode for transparency
+        if img.mode != "RGBA":
+            img = img.convert("RGBA")
+        ico_images.append(img)
 
     ico_path = output_path / "favicon.ico"
+    # Save with the largest image first, append smaller sizes
     ico_images[0].save(
         ico_path,
         format="ICO",
-        sizes=ico_sizes,
         append_images=ico_images[1:],
     )
-    print(f"  {'favicon.ico':20} (multi-size ICO)")
+    print(f"  {'favicon.ico':20} (multi-size ICO: {', '.join(str(s) for s in ico_sizes)})")
 
     print("-" * 40)
     print(f"Done! {len(ICON_SIZES) + 1} files created.")
