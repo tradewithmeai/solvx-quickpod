@@ -8,13 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- (Add new features here)
+- Server-side idle watchdog - auto-terminates pod after 15 minutes of no connections
+- Proper Windows console handler using SetConsoleCtrlHandler API
 
 ### Changed
-- (Add changes here)
+- Loading time message updated to "8-9 minutes"
 
 ### Fixed
-- (Add fixes here)
+- Terminal window close not triggering pod termination on Windows
 
 ---
 

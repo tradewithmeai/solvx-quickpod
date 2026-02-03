@@ -136,21 +136,38 @@ def _setup_emergency_handlers() -> None:
     """
     Register handlers for emergency pod termination.
 
-    Sets up atexit and signal handlers to ensure pods are terminated
-    when the application exits unexpectedly (terminal close, etc).
+    Sets up atexit, signal handlers, and Windows console handlers to ensure
+    pods are terminated when the application exits unexpectedly.
     """
     # Register atexit handler for normal exits
     atexit.register(_emergency_terminate)
 
-    # Register signal handlers for terminal close events
     if sys.platform == "win32":
-        # Windows: SIGBREAK is sent when console window is closed
-        signal.signal(signal.SIGBREAK, _signal_handler)
+        # Windows: Use SetConsoleCtrlHandler to catch terminal window close.
+        # signal.SIGBREAK does NOT catch the close button - we need the
+        # Windows API directly. The handler gets ~5 seconds to complete.
+        import ctypes
+
+        @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_ulong)
+        def _win_console_handler(event):
+            # CTRL_CLOSE_EVENT=2, CTRL_LOGOFF_EVENT=5, CTRL_SHUTDOWN_EVENT=6
+            if event in (2, 5, 6):
+                _emergency_terminate()
+                return True
+            return False
+
+        # Store reference at module level to prevent garbage collection
+        global _win_handler_ref
+        _win_handler_ref = _win_console_handler
+        ctypes.windll.kernel32.SetConsoleCtrlHandler(_win_handler_ref, True)
     else:
         # Unix: SIGTERM is sent when terminal is closed, SIGHUP for hangup
         signal.signal(signal.SIGTERM, _signal_handler)
         signal.signal(signal.SIGHUP, _signal_handler)
 
+
+# Module-level reference for Windows console handler (prevents GC)
+_win_handler_ref = None
 
 # Initialize emergency handlers at module load
 _setup_emergency_handlers()
@@ -226,7 +243,7 @@ def wait_for_vllm_ready(pod_id: str) -> None:
     Raises:
         SystemExit: If the pod terminates while waiting.
     """
-    print("Loading AI model (this takes 2-3 minutes on first run)...")
+    print("Loading AI model - chat will be ready in 8-9 minutes...")
     check_count = 0
     dot_count = 0
 

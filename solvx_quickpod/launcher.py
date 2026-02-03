@@ -105,14 +105,44 @@ def create_pod(gpu_type: str, gpu_count: int) -> Optional[str]:
     """
     gpu_memory_utilization = "0.9"
     api_key = os.getenv("VLLM_API_KEY", "default_key")
+    runpod_key = os.getenv("RUNPOD_API_KEY", "")
+
+    # Idle watchdog script - auto-terminates pod if no client connects for 15 min.
+    # Safety net for: terminal close, client crash, internet loss, power failure.
+    # RUNPOD_POD_ID is provided automatically by RunPod inside the container.
+    idle_watchdog = (
+        "("
+        "  IDLE_LIMIT=900; "  # 15 minutes in seconds
+        "  LAST_ACTIVE=$(date +%s); "
+        "  sleep 600; "  # 10 min grace period for model loading
+        "  while true; do "
+        "    sleep 120; "  # Check every 2 minutes
+        "    CONNS=$(ss -tn state established 'sport = :8000' 2>/dev/null | tail -n +2 | wc -l); "
+        "    NOW=$(date +%s); "
+        "    if [ \"$CONNS\" -gt \"0\" ]; then "
+        "      LAST_ACTIVE=$NOW; "
+        "    fi; "
+        "    IDLE=$((NOW - LAST_ACTIVE)); "
+        "    if [ \"$IDLE\" -gt \"$IDLE_LIMIT\" ]; then "
+        "      curl -s -X DELETE \"https://rest.runpod.io/v1/pods/$RUNPOD_POD_ID\" "
+        "        -H \"Authorization: Bearer $RUNPOD_TERMINATE_KEY\" "
+        "        -H \"Content-Type: application/json\" > /dev/null 2>&1; "
+        "      exit 0; "
+        "    fi; "
+        "  done"
+        ") &"
+    )
 
     # Build the startup command
-    # Installs vLLM, then starts the server with AWQ quantization
+    # 1. Start idle watchdog in background
+    # 2. Install vLLM
+    # 3. Start the vLLM server with AWQ quantization
     startup_cmd = (
+        f"{idle_watchdog} "
         f"echo '=== Starting vLLM Setup ===' && "
         f"pip install -q --upgrade pip && "
         f"pip install -q vllm && "
-        f"echo 'Downloading model from HuggingFace (first run takes a few minutes)...' && "
+        f"echo 'Downloading model from HuggingFace...' && "
         f"python3 -m vllm.entrypoints.openai.api_server "
         f"--model {HF_MODEL_ID} "
         f"--quantization awq "
@@ -139,6 +169,7 @@ def create_pod(gpu_type: str, gpu_count: int) -> Optional[str]:
             "TENSOR_PARALLEL_SIZE": str(gpu_count),
             "VLLM_API_KEY": api_key,
             "HF_HOME": "/root/.cache/huggingface",
+            "RUNPOD_TERMINATE_KEY": runpod_key,
         },
         "dockerStartCmd": ["/bin/bash", "-c", startup_cmd],
     }

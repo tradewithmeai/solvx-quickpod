@@ -112,7 +112,7 @@ The executable will be at `dist/solvx-quickpod`.
 
 | Issue | Solution |
 |-------|----------|
-| "502 from proxy" | Normal during startup. Model loading takes 2-3 minutes. |
+| "502 from proxy" | Normal during startup. Chat will be ready in 8-9 minutes. |
 | Pod won't start | Check your RunPod credit balance |
 | Connection lost | Pod may have terminated. Run app again to start fresh. |
 
