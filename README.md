@@ -28,7 +28,9 @@
 ## Features
 
 - **One-Click Launch** - Download, run, chat. No complex setup.
-- **Cloud GPU Power** - RTX 3090 running Mistral-7B-Instruct
+- **GPU Selection** - Choose from 30+ GPUs with live availability, starting at $0.12/hr
+- **Cheapest Available** - Auto-select the lowest cost GPU for your VRAM needs
+- **Cloud GPU Power** - Run Mistral-7B-Instruct on cloud GPUs from RTX 3070 to H200
 - **Guided Onboarding** - First-run wizard walks you through RunPod signup
 - **Session Recovery** - Reconnect to running pods automatically
 - **Debug Mode** - View raw JSON API exchanges with `/json`
@@ -62,11 +64,18 @@ python -m solvx_quickpod.main
 
 ## Cost
 
-| GPU | Hourly Rate | $15 Credit = |
-|-----|-------------|--------------|
-| RTX 3090 | ~$0.44/hour | ~34 hours of chat |
+Select your GPU at launch based on your budget and VRAM needs:
 
-Use `/stop` to terminate the pod and stop billing when you're done.
+| GPU | VRAM | Hourly Rate |
+|-----|------|-------------|
+| RTX A2000 | 6 GB | ~$0.12/hr |
+| RTX 3080 | 10 GB | ~$0.19/hr |
+| RTX A4000 | 16 GB | ~$0.24/hr |
+| RTX 3090 | 24 GB | ~$0.44/hr |
+| RTX 4090 | 24 GB | ~$0.69/hr |
+| A100 SXM | 80 GB | ~$1.94/hr |
+
+The app queries RunPod for live GPU availability and lets you pick or auto-select the cheapest option. Use `/stop` to terminate the pod and stop billing when you're done.
 
 ## Commands
 
@@ -118,10 +127,11 @@ The executable will be at `dist/solvx-quickpod`.
 
 ## How It Works
 
-1. **Pod Creation** - Launches a RunPod GPU instance with vLLM
-2. **Model Loading** - Downloads Mistral-7B-Instruct-AWQ from HuggingFace
-3. **Chat Interface** - OpenAI-compatible API with streaming responses
-4. **Session Logging** - Conversations saved to `~/.myai/chat_logs/`
+1. **GPU Selection** - Choose your GPU from live RunPod availability
+2. **Pod Creation** - Launches a RunPod GPU instance with vLLM
+3. **Model Loading** - Downloads Mistral-7B-Instruct-AWQ from HuggingFace
+4. **Chat Interface** - OpenAI-compatible API with streaming responses
+5. **Session Logging** - Conversations saved to `~/.myai/chat_logs/`
 
 ## License
 
