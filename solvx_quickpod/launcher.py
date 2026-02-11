@@ -18,7 +18,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 from dotenv import load_dotenv
@@ -34,9 +34,52 @@ load_dotenv(_ENV_PATH)
 # API Configuration
 RUNPOD_API_KEY: Optional[str] = os.getenv("RUNPOD_API_KEY")
 RUNPOD_API_URL: str = "https://rest.runpod.io/v1/pods"
+RUNPOD_GRAPHQL_URL: str = "https://api.runpod.io/graphql"
 
 # Model Configuration
 HF_MODEL_ID: str = "TheBloke/Mistral-7B-Instruct-v0.2-AWQ"
+
+# Approximate secure-cloud pricing ($/hr) for common GPUs.
+# The RunPod API does not expose pricing, so we maintain this lookup.
+# Prices sourced from runpod.io/pricing and may drift over time.
+GPU_PRICES: Dict[str, float] = {
+    # 6-12 GB
+    "NVIDIA RTX A2000": 0.12,
+    "NVIDIA GeForce RTX 3070": 0.16,
+    "NVIDIA GeForce RTX 3080": 0.19,
+    "NVIDIA GeForce RTX 3080 Ti": 0.22,
+    "NVIDIA GeForce RTX 4070 Ti": 0.28,
+    # 16 GB
+    "NVIDIA RTX A4000": 0.24,
+    "NVIDIA GeForce RTX 4080": 0.36,
+    "NVIDIA GeForce RTX 4080 SUPER": 0.39,
+    "NVIDIA RTX 2000 Ada Generation": 0.29,
+    # 20 GB
+    "NVIDIA RTX 4000 Ada Generation": 0.34,
+    "NVIDIA RTX 4000 SFF Ada Generation": 0.29,
+    "NVIDIA RTX A4500": 0.34,
+    # 24 GB
+    "NVIDIA GeForce RTX 3090": 0.44,
+    "NVIDIA GeForce RTX 3090 Ti": 0.49,
+    "NVIDIA GeForce RTX 4090": 0.69,
+    "NVIDIA RTX A5000": 0.47,
+    "NVIDIA L4": 0.44,
+    # 32+ GB
+    "NVIDIA GeForce RTX 5090": 1.19,
+    # 48 GB
+    "NVIDIA A40": 0.79,
+    "NVIDIA L40": 0.89,
+    "NVIDIA L40S": 0.94,
+    "NVIDIA RTX A6000": 0.79,
+    "NVIDIA RTX 6000 Ada Generation": 1.14,
+    # 80+ GB
+    "NVIDIA RTX PRO 6000 Blackwell Server Edition": 1.49,
+    "NVIDIA A100 80GB PCIe": 1.64,
+    "NVIDIA A100-SXM4-80GB": 1.94,
+    "NVIDIA H100 PCIe": 2.69,
+    "NVIDIA H100 80GB HBM3": 3.49,
+    "NVIDIA H200": 4.49,
+}
 
 # State Persistence
 STATE_DIR: Path = Path.home() / ".myai"
@@ -47,6 +90,82 @@ _HEADERS: Dict[str, str] = {
     "Authorization": f"Bearer {RUNPOD_API_KEY}",
     "Content-Type": "application/json",
 }
+
+
+# =============================================================================
+# GPU DISCOVERY
+# =============================================================================
+
+def fetch_available_gpus(min_vram_gb: int = 0) -> List[Dict[str, Any]]:
+    """
+    Fetch available GPU types from RunPod and filter by VRAM.
+
+    Queries the RunPod GraphQL API for GPU types that are available
+    on the secure cloud, filters by minimum VRAM, and annotates
+    with pricing from our static lookup.
+
+    Args:
+        min_vram_gb: Minimum GPU VRAM in GB (0 = no filter).
+
+    Returns:
+        List of GPU dicts sorted by price ascending, each containing:
+        - id: GPU type string for pod creation
+        - display_name: Short display name
+        - vram_gb: VRAM in GB
+        - price_hr: Approximate $/hr (None if unknown)
+    """
+    query = """
+    query GpuTypes {
+      gpuTypes {
+        id
+        displayName
+        memoryInGb
+        secureCloud
+        communityCloud
+      }
+    }
+    """
+
+    try:
+        response = requests.post(
+            RUNPOD_GRAPHQL_URL,
+            headers=_HEADERS,
+            json={"query": query},
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except requests.RequestException as e:
+        print(f"Failed to fetch GPU types: {e}")
+        return []
+
+    gpu_types = data.get("data", {}).get("gpuTypes", [])
+
+    results = []
+    for gpu in gpu_types:
+        vram = gpu.get("memoryInGb", 0)
+        gpu_id = gpu.get("id", "")
+
+        # Filter: must be available on secure or community cloud,
+        # meets VRAM requirement, and has known pricing
+        if not gpu.get("secureCloud") and not gpu.get("communityCloud"):
+            continue
+        if vram < min_vram_gb:
+            continue
+        if gpu_id not in GPU_PRICES:
+            continue
+
+        results.append({
+            "id": gpu_id,
+            "display_name": gpu.get("displayName", gpu_id),
+            "vram_gb": vram,
+            "price_hr": GPU_PRICES[gpu_id],
+            "secure": gpu.get("secureCloud", False),
+        })
+
+    # Sort by price ascending
+    results.sort(key=lambda g: g["price_hr"])
+    return results
 
 
 # =============================================================================
@@ -87,7 +206,7 @@ def start_pod(gpu_type: str, gpu_count: int) -> Optional[Dict[str, str]]:
 # POD CREATION
 # =============================================================================
 
-def create_pod(gpu_type: str, gpu_count: int) -> Optional[str]:
+def create_pod(gpu_type: str, gpu_count: int, secure: bool = True) -> Optional[str]:
     """
     Create a RunPod pod configured with vLLM and Mistral-7B.
 
@@ -156,7 +275,7 @@ def create_pod(gpu_type: str, gpu_count: int) -> Optional[str]:
 
     # Pod configuration payload
     payload: Dict[str, Any] = {
-        "cloudType": "SECURE",
+        "cloudType": "SECURE" if secure else "COMMUNITY",
         "interruptible": False,
         "computeType": "GPU",
         "gpuCount": gpu_count,

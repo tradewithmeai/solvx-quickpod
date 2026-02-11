@@ -15,6 +15,7 @@ Options:
 
 from __future__ import annotations
 
+import ctypes
 import json
 import sys
 import time
@@ -24,6 +25,16 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
+
+# Go fullscreen on Windows by simulating F11
+if sys.platform == "win32":
+    try:
+        user32 = ctypes.windll.user32
+        VK_F11 = 0x7A
+        user32.keybd_event(VK_F11, 0, 0, 0)        # key down
+        user32.keybd_event(VK_F11, 0, 0x0002, 0)    # key up
+    except Exception:
+        pass
 
 console = Console()
 

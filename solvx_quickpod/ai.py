@@ -55,6 +55,7 @@ from solvx_quickpod import storage
 from solvx_quickpod.launcher import (
     clear_state,
     create_pod,
+    fetch_available_gpus,
     is_pod_running,
     terminate_pod,
     wait_for_running,
@@ -77,9 +78,8 @@ if not RUNPOD_API_KEY or not VLLM_API_KEY:
 # =============================================================================
 
 # GPU Configuration
-GPU_TYPE: str = "NVIDIA GeForce RTX 3090"
 GPU_COUNT: int = 1
-GPU_COST_PER_HOUR: float = 0.44  # Approximate cost in USD
+DEFAULT_MIN_VRAM_GB: int = 16  # Minimum VRAM for Mistral-7B AWQ
 
 # Model Configuration
 MODEL_ID: str = "TheBloke/Mistral-7B-Instruct-v0.2-AWQ"
@@ -201,7 +201,88 @@ def check_existing_pod() -> Optional[str]:
     return None
 
 
-def launch_pod() -> Tuple[str, str]:
+def select_gpu() -> Tuple[str, str, float, bool]:
+    """
+    Interactive GPU selection menu.
+
+    Queries RunPod for available GPUs, filters by user-specified
+    minimum VRAM, and presents a numbered selection list.
+
+    Returns:
+        Tuple of (gpu_type_id, display_name, cost_per_hour, secure_cloud)
+    """
+    while True:
+        print("=== GPU Selection ===")
+
+        # Get minimum VRAM from user
+        vram_input = input(
+            f"Minimum VRAM in GB [{DEFAULT_MIN_VRAM_GB}]: "
+        ).strip()
+
+        if not vram_input:
+            min_vram = DEFAULT_MIN_VRAM_GB
+        else:
+            try:
+                min_vram = int(vram_input)
+                if min_vram < 1:
+                    print("VRAM must be at least 1 GB.")
+                    continue
+            except ValueError:
+                print("Please enter a number.")
+                continue
+
+        print("\nFetching available GPUs...")
+        gpus = fetch_available_gpus(min_vram_gb=min_vram)
+
+        if not gpus:
+            print(f"No GPUs available with {min_vram} GB+ VRAM.")
+            print("Try a lower VRAM requirement.\n")
+            continue
+
+        # Display options - first option is auto-select cheapest
+        print()
+        print(f"  1. Cheapest available (auto-select)")
+        for i, gpu in enumerate(gpus, start=2):
+            print(
+                f"  {i}. {gpu['display_name']:20s} | "
+                f"{gpu['vram_gb']:3d} GB | "
+                f"${gpu['price_hr']:.2f}/hr"
+            )
+
+        # Get selection
+        while True:
+            choice = input(f"\nSelect GPU (1-{len(gpus) + 1}) [1]: ").strip()
+
+            if not choice:
+                idx = 0
+                break
+
+            try:
+                idx = int(choice) - 1
+                if 0 <= idx <= len(gpus):
+                    break
+                print(f"Please enter 1-{len(gpus) + 1}.")
+            except ValueError:
+                print("Please enter a number.")
+
+        # Option 0 = cheapest (first in sorted list)
+        if idx == 0:
+            selected = gpus[0]
+        else:
+            selected = gpus[idx - 1]
+
+        print(f"\nSelected: {selected['display_name']} "
+              f"({selected['vram_gb']} GB) - ${selected['price_hr']:.2f}/hr")
+
+        # Confirm or go back
+        confirm = input("Proceed? (y/n) [y]: ").strip().lower()
+        if confirm in ("", "y"):
+            return selected["id"], selected["display_name"], selected["price_hr"], selected["secure"]
+
+        print()  # Go back to start of loop
+
+
+def launch_pod(gpu_type: str, gpu_name: str, secure: bool = True) -> Tuple[str, str]:
     """
     Launch a new RunPod GPU pod with vLLM.
 
@@ -215,10 +296,10 @@ def launch_pod() -> Tuple[str, str]:
         SystemExit: If pod creation fails.
     """
     print("\n=== Starting Pod ===")
-    print(f"GPU: {GPU_TYPE}")
+    print(f"GPU: {gpu_name}")
     print(f"Model: Mistral-7B")
 
-    pod_id = create_pod(GPU_TYPE, GPU_COUNT)
+    pod_id = create_pod(gpu_type, GPU_COUNT, secure=secure)
     if not pod_id:
         print("[ERROR] Failed to create pod")
         sys.exit(1)
@@ -317,7 +398,7 @@ def trim_history(messages: List[Dict[str, str]], max_turns: int = 10) -> List[Di
 # INTERACTIVE CHAT
 # =============================================================================
 
-def run_chat(pod_id: str) -> None:
+def run_chat(pod_id: str, gpu_name: str = "RTX 3090", gpu_cost: float = 0.44) -> None:
     """
     Run the interactive chat interface.
 
@@ -349,7 +430,7 @@ def run_chat(pod_id: str) -> None:
     last_pod_check = time.time()
 
     # Display session info
-    console.print(f"[dim]GPU: RTX 3090 (~${GPU_COST_PER_HOUR:.2f}/hour) | Model: Mistral-7B[/dim]")
+    console.print(f"[dim]GPU: {gpu_name} (~${gpu_cost:.2f}/hour) | Model: Mistral-7B[/dim]")
     console.print(f"[dim]Temperature: {TEMPERATURE} | History: Last {MAX_TURNS} turns[/dim]\n")
     console.print("[bold]Chat started. Commands: /json, /stop, /help. Ctrl+C to exit.[/bold]\n")
 
@@ -369,7 +450,7 @@ def run_chat(pod_id: str) -> None:
 
             # Handle commands
             if user_input.lower() == "/help":
-                _show_help()
+                _show_help(gpu_name, gpu_cost)
                 continue
 
             if user_input.lower() == "/json":
@@ -408,7 +489,7 @@ def run_chat(pod_id: str) -> None:
                 messages = trim_history(messages, MAX_TURNS)
 
         except KeyboardInterrupt:
-            _handle_exit(pod_id)
+            _handle_exit(pod_id, gpu_cost)
             sys.exit(0)
 
         except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError) as e:
@@ -422,13 +503,13 @@ def run_chat(pod_id: str) -> None:
             console.print("[dim]If this persists, check your internet connection.[/dim]\n")
 
 
-def _show_help() -> None:
+def _show_help(gpu_name: str, gpu_cost: float) -> None:
     """Display available chat commands."""
     console.print("[dim]Available commands:[/dim]")
     console.print("[dim]  /json - Toggle JSON request/response display[/dim]")
     console.print("[dim]  /stop - Terminate pod and stop billing[/dim]")
     console.print("[dim]  /help - Show this help[/dim]")
-    console.print(f"[dim]\nGPU Cost: ~${GPU_COST_PER_HOUR:.2f}/hour (RTX 3090)[/dim]")
+    console.print(f"[dim]\nGPU Cost: ~${gpu_cost:.2f}/hour ({gpu_name})[/dim]")
     console.print("[dim]Use /stop when done to avoid unnecessary charges.[/dim]\n")
 
 
@@ -457,7 +538,7 @@ def _confirm_stop(pod_id: str) -> bool:
     return False
 
 
-def _handle_exit(pod_id: str) -> None:
+def _handle_exit(pod_id: str, gpu_cost: float = 0.44) -> None:
     """
     Handle application exit - prompt to terminate running pod.
 
@@ -466,6 +547,7 @@ def _handle_exit(pod_id: str) -> None:
 
     Args:
         pod_id: The pod identifier to check/terminate.
+        gpu_cost: Hourly cost of the GPU for display.
     """
     console.print("\n")
 
@@ -477,7 +559,7 @@ def _handle_exit(pod_id: str) -> None:
 
     # Pod is running - warn user and offer to terminate
     console.print(f"[yellow]Warning: Your GPU pod is still running![/yellow]")
-    console.print(f"[yellow]It will continue billing at ~${GPU_COST_PER_HOUR:.2f}/hour until stopped.[/yellow]\n")
+    console.print(f"[yellow]It will continue billing at ~${gpu_cost:.2f}/hour until stopped.[/yellow]\n")
 
     try:
         choice = input("Terminate pod now? (y/n): ").strip().lower()
@@ -617,7 +699,7 @@ def main() -> None:
         if existing_pod_id:
             print("=== Existing Pod Found ===")
             print(f"Pod ID: {existing_pod_id}")
-            print(f"[Note: Pod is still running and billing at ~${GPU_COST_PER_HOUR:.2f}/hour]")
+            print("[Note: Pod is still running and billing]")
 
             while True:
                 choice = input("\nReconnect to this pod? (y/n): ").strip().lower()
@@ -637,8 +719,11 @@ def main() -> None:
 
                 print("Please enter 'y' or 'n'")
 
+        # GPU selection
+        gpu_type, gpu_name, gpu_cost, gpu_secure = select_gpu()
+
         # Launch new pod
-        pod_id, _base_url = launch_pod()
+        pod_id, _base_url = launch_pod(gpu_type, gpu_name, secure=gpu_secure)
         _active_pod_id = pod_id
 
         # Wait for vLLM to be ready
@@ -646,7 +731,7 @@ def main() -> None:
 
         # Start chat
         print("\n=== Pod Ready ===\n")
-        run_chat(pod_id)
+        run_chat(pod_id, gpu_name, gpu_cost)
 
     except KeyboardInterrupt:
         # Check if we have a pod running that needs cleanup
